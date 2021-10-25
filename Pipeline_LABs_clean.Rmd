@@ -1,0 +1,1425 @@
+---
+title: "Pipeline_Labs_clean"
+output: 
+  output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---  
+#Preprocessing
+##Load Packages
+```{r}
+library(ggplot2) 
+library(dplyr)
+library(rstatix)
+library(Matrix)
+library(pheatmap)
+library(Hmisc)
+library(reshape2)
+library(BBmisc)
+library(ggloop)
+library(ggcorrplot)
+library(ggsignif)
+#macchine learning libraries
+library(ggplot2)
+library(cowplot)
+library(randomForest)
+library(rpart.plot)
+library(rpart)
+library(eq5d)
+library(randomForestExplainer)
+library(tidyverse)
+library(neuralnet)
+library(GGally)
+```
+##Load Data
+```{r}
+#load data
+new.dataf <- read.table("/Users/Moritz/Desktop/Schreibtisch - MomoMac/R_Coding/R_Pipeline3_MK_210216/MasterProject-OsteoporosisOutpatie_DATA_2021-05-27_1639.csv",header = TRUE, sep = ",", stringsAsFactors = FALSE)
+#Anpassen auf Server!
+#Corrections
+new.dataf[new.dataf == "MIT 54JAHREN"] <- 54
+#new.dataf <- new.dataf[-c(1,7,11,26,63),]
+```
+##Set Factors
+```{r}
+my.data.labs <- new.dataf %>% select("handgrip_strength_r_a",
+                                   "handgrip_strength_l_a",
+                                   "tug_time",
+                                   "sodium",
+                                   "potassium",                 
+                                   "glucose",
+                                   "gfr",
+                                   "calcium",
+                                   "calcium_2",
+                                   "phosphate",
+                                   "bsg_crp",
+                                   "gesamteiweis",
+                                   "ggt"  ,
+                                   "alkaline_phosphate",
+                                   "leuko",
+                                   "ery",
+                                   "hb",
+                                   "hk",
+                                   "mcv",
+                                   "mch",
+                                   "mchc",
+                                   "thrombozytes",
+                                   "tsh",
+                                   "parathormon",          
+                                   "hydroxyvitamin_d3",
+                                   "ldh",
+                                   "keratine",
+                                   "creatinine",
+                                   "myoglobin",
+                                   "bmd_oberer_hals",
+                                   "bmd_l1",
+                                   "gehgeschwindigkeit_zeit_f",
+                                   "zeit_f_r_5x_aufstehen_und",
+                                   "sppb_calculated_new",
+                                   "age_bcm",
+                                   "gewicht_bcm",
+                                   "groesse_bcm",
+                                   "bmi_calculated",
+                                   "body_fat",
+                                   "visceral_fat",
+                                   "muscle_mass",
+                                   "resting_metabolism_kcal",
+                                   "circalf",
+                                   "sarc_f_calculated_score",
+                                    "eq5_mobility",
+                                "eq5_selfcare",
+                                "eq5_usual",
+                                "eq5_pain", 
+                                "eq5_anxiety",
+                                "estimated_gz",
+                                "osteo_5",
+                                "osteo_10",
+                                "osteo_13",
+                                "osteo_2",
+                                "osteo_11",
+                                "osteo_9___1",
+                                "osteo_9___2",
+                                "osteo_9___3",
+                                "osteo_9___4",
+                                "osteo_14",
+                                "osteo_15",
+                                "sarc_sturz")
+```
+
+###Clear Col Names for Plots
+```{r}
+
+colNplots <- c("Handgripstrength dominant hand",
+          "Handgripstrength non dominant hand",
+                                   "TUG-Test Time",
+                                   "Sodium",
+                                   "Potassium",                 
+                                   "Glucose",
+                                   "GFR",
+                                   "Calcium",
+                                   "Calcium (corr.)",
+                                   "Phosphate",
+                                   "C-Reactive Protein",
+                                   "Total Protein",
+                                   "Gamma Gluteryl Transferase"  ,
+                                   "Alkaline Phosphatase",
+                                   "Leukocytes",
+                                   "Erythrozytes",
+                                   "Haemoglobin",
+                                   "Haematokrite",
+                                   "MCV",
+                                   "MCH",
+                                   "MCHC",
+                                   "Thrombozytes",
+                                   "TSH",
+                                   "Parathormon",          
+                                   "Vitamin D3",
+                                   "LDH",
+                                   "Creatine",
+                                   "Creatinine",
+                                   "Myoglobin",
+                                   "Bone Mineral Density (femoral neck)",
+                                   "Bone Mineral Density (L1)",
+                                   "Time for 4m",
+                                   "Time 5x Sit to Stand",
+                                   "SPPB Score",
+                                   "Age",
+                                   "Weight",
+                                   "Height",
+                                   "BMI",
+                                   "Body Fat Percentage",
+                                   "Visceral Fat Percentage",
+                                   "Muscle Percentage",
+                                   "Resting metabolism (kcal)",
+                                   "Circumference Calf",
+                                   "SARC-F Score",
+                                 "Mobility (EQ5D)",
+                                "Selfcare (EQ5D)",
+                                "Usual (EQ5D)",
+                                "Pain (EQ5D)", 
+                                "Anxiety (EQ5D)",
+                                "Estimated Health State",
+                                "Age Menopause",
+                                "Leaving Appartment dayli",
+                                "Sports weekly",
+                                "Smoking",
+                                "Self Sustaining",
+                                "Fracture_WK",
+                                "Fracture_HG",
+                                "Fracture_OS",
+                                "Fracture_OL",
+                                "Stolpern",
+                                "Schwindelig",
+                                "past_falls"
+          
+          )
+
+colnames(my.data.labs) <- colNplots
+```
+###Calculate EQ5
+```{r}
+library(eq5d)
+data.eq <- my.data.labs %>%  select( "Mobility (EQ5D)",
+                                "Selfcare (EQ5D)",
+                                "Usual (EQ5D)",
+                                "Pain (EQ5D)", 
+                                "Anxiety (EQ5D)")
+
+colnames(data.eq) <- (c("MO",  "SC",   "UA", "PD", "AD"))
+my.data.labs <- my.data.labs %>% mutate(EQ5_Index = eq5d(scores = data.eq, version = "5L", country = "Germany", ignore.invalid = TRUE, type = "VT"))
+```
+###Set Statistics Factors
+```{r}
+my.stat.data <- my.data.labs
+coln.stat.data <- c("Handgripstrength.dominant.hand",
+          "Handgripstrength.non.dominant.hand",
+                                   "TUG_Test.Time",
+                                   "Sodium",
+                                  "Potassium",                 
+                                   "Glucose",
+                                   "GFR",
+                                   "Calcium",
+                                   "Calcium.corr.",
+                                   "Phosphate",
+                                   "C.reactive.protein",
+                                   "Total.protein",
+                                   "Gamma.gluteryl.transferase",
+                                   "alkaline.phosphate",
+                                  "Leukocytes",
+                                   "Erythrozytes",
+                                  "Haemoglobin",
+                                   "Haematokrite",
+                                   "MCV",
+                                   "MCH",
+                                   "MCHC",
+                                   "Thrombozytes",
+                                   "TSH",
+                                   "Parathormon",          
+                                   "Vitamin.D3",
+                                   "LDH",
+                                   "Creatine.Kinase",
+                                   "Creatinine",
+                                   "Myoglobin",
+                                   "Bone.mineral.density.femoral.neck",
+                                   "Bone.mineral.density.L1",
+                                   "Time.for.4m",
+                                   "Time.for.5x.sit.to.stand",
+                                   "SPPB.Score",
+                                   "Age",
+                                   "Weight",
+                                   "Height",
+                                   "BMI",
+                                   "Body.fat.percentage",
+                                   "visceral.fat.percentage",
+                                   "Muscle.percentage",
+                                   "Resting.metabolism.kcal",
+                                   "Calf.circumference",
+                                   "SARC_F.Score",
+                                  "eq5_mobility",
+                                  "eq5_selfcare",
+                                  "eq5_usual",
+                                  "eq5_pain", 
+                                  "eq5_anxiety",
+                                  "estimated_gz",
+                                  "age_menopause",
+                                  "daily_leaving_appartment",
+                                  "weekly_sports",
+                                  "smoking",
+                                  "self_sustaining",
+                                  "Fracture_WK",
+                                  "Fracture_HG",
+                                  "Fracture_OS",
+                                  "Fracture_OL",
+                                  "Stolpern",
+                                  "Schwindelig",
+                                  "past_falls",
+          "EQ5_Index"
+          )
+colnames(my.stat.data) <- coln.stat.data
+colnames(my.stat.data) 
+```
+
+```{r}
+col.sig.data <- c(
+                  "TUG-Test Time",
+                  "Time for 4m",
+                  "Time for 5x Sit to Stand",
+                  "SPPB Score",
+                  "Age",
+                  "Weight",
+                  "Height",
+                  
+                                   "BMI",
+                                   "Body Fat Percentage",
+                                   "Muscle Percentage",
+                                   "visceral.fat.percentage",
+                  "Calf Circumference",
+                                   "SARC-F Score",
+                                 "EQ5-Index",
+                                  "Estimated Health Status",
+                                  "daily leaving appartment",
+                                  "Weekly Sports",
+                                  "Smoking",
+                                  "Self Sustaining",
+                                  "Past Falls",
+                                  "Stubling",
+                                  "Sodium",
+                                  "Potassium",                 
+                                   "Glucose",
+                                   "GFR",
+                                   "Calcium",
+                                   "Calcium prot. corr.",
+                                   "Phosphate",
+                                   "C-reactive Protein",
+                                   "Total Protein",
+                                   "Gamma Gluteryl Transferase",
+                                   "alkaline Phosphate",
+                                  "Leukocytes",
+                                   "Erythrozytes",
+                                 "Haemoglobin",
+                                   "Haematokrite",
+                                  "MCV",
+                                   "MCH",
+                                   "MCHC",
+                                   "Thrombozytes",
+                                   "TSH",
+                                   "Parathormon",          
+                                   "Vitamin D3",
+                                   "LDH",
+                                   "Creatine Kinase",
+                                   "Creatinine",
+                                   "Myoglobin",
+                                   "Bone Mineral Density (Femoral Neck)",
+                                   "Bone Mineral Density (L1)",
+                  "Handgripstrength (Dominant Hand)",
+                  "Handgripstrength (Non-dominant Hand)",
+                  "Difference HGS"
+                                  )
+                                   
+sig.data <- my.stat.data
+colnames(sig.data) <- col.sig.data
+```
+
+#CORR HEATMAP Revised
+###self-programmed
+```{r}
+my.data <- my.stat.data
+
+corr.data <- mutate_all(my.data, function(x) as.numeric(as.character(x)))
+median_missing <- corr.data
+corr.data <- replace_na(corr.data,as.list(colMeans(corr.data,na.rm=T)))
+
+#replace na values with mean of column to complete matrix
+for(i in 1:ncol(corr.data)){
+  corr.data[is.na(corr.data[,i]), i] <- mean(corr.data[,i], na.rm = TRUE)
+}
+
+#producs correlation matrix
+cormat<-signif(cor(corr.data),2)
+colnames(corr.data)
+corr <- round(cormat, 2)
+p.mat <- cor_pmat(corr.data)
+
+cormat <- round(cor(corr.data),2)
+cormat <- cormat
+melted_cormat <- melt(cormat)
+# Get lower triangle of the correlation matrix
+  get_lower_tri<-function(cormat){
+    cormat[upper.tri(cormat)] <- NA
+    return(cormat)
+  }
+  # Get upper triangle of the correlation matrix
+  get_upper_tri <- function(cormat){
+    cormat[lower.tri(cormat)]<- NA
+    return(cormat)
+  }
+#reordering Cormat
+reorder_cormat <- function(cormat){
+# Use correlation between variables as distance
+dd <- as.dist((1-cormat)/2)
+hc <- hclust(dd)
+cormat <-cormat[hc$order, hc$order]
+}
+# Reorder the correlation matrix
+cormat <- reorder_cormat(cormat)
+upper_tri <- get_upper_tri(cormat)
+# Melt the correlation matrix
+melted_cormat <- melt(upper_tri, na.rm = TRUE)
+#add Correlation strength:
+melted_cormat <- melted_cormat %>% mutate(corr.strength = value)
+melted_cormat <- melted_cormat %>% mutate(corr.strength = ifelse(corr.strength >= 1,5,corr.strength))
+melted_cormat <- melted_cormat %>% mutate(corr.strength = ifelse(value >= 0.7& value < 1,4,corr.strength))
+melted_cormat <- melted_cormat %>% mutate(corr.strength = ifelse(value >= 0.5&value <0.7,3,corr.strength))
+melted_cormat <- melted_cormat %>% mutate(corr.strength = ifelse(value >= 0.3&value<0.5,2,corr.strength))
+melted_cormat <- melted_cormat %>% mutate(corr.strength = ifelse(value >= 0.1&value<0.3,1,corr.strength))
+melted_cormat <- melted_cormat %>% mutate(corr.strength = ifelse(value >= -0.1& value< 0.1,0,corr.strength))
+melted_cormat <- melted_cormat %>% mutate(corr.strength = ifelse(value <= -0.1&value>-0.3,-1,corr.strength))
+melted_cormat <- melted_cormat %>% mutate(corr.strength = ifelse(value <= -0.3&value>-0.5,-2,corr.strength))
+melted_cormat <- melted_cormat %>% mutate(corr.strength = ifelse(value <= -0.5&value>-0.7,-3,corr.strength))
+melted_cormat <- melted_cormat %>% mutate(corr.strength = ifelse(value <= -0.7&value>-1,-4,corr.strength))
+#melted_cormat <- melted_cormat %>% mutate(corr.strength = ifelse(value <= -1,-5,corr.strength))
+
+#set Colors
+melted_cormat$corr.strength <- as.factor(melted_cormat$corr.strength)
+color_list <- c("-5" = "grey60", 
+                "-4" = "deepskyblue4",
+                "-3" = "deepskyblue2",
+                "-2" = "skyblue1",
+                "-1" = "lightskyblue1",
+                "0" = "white",
+                "1" = "lightsalmon1",
+                "2" ="indianred1",
+                "3" = "firebrick1",
+                "4" ="firebrick3",
+                "5" = "grey60")
+corr_lables_list <- c("-5" = "-1",
+                      "-4" ="-0.99 to -0,7",
+                      "-3" ="-0.7 to -0.5",
+                      "-2" ="-0.5 to -0.3",
+                      "-1" ="-0.3 to -0.1",
+                      "0" = "-0.1 to 0.1",
+                      "1" ="0.1 to 0.3",
+                      "2" ="0.3 to 0.5",
+                      "3" ="0.5 to 0.7",
+                      "4" = "0.7 to 0.99",
+                      "5" = "1")
+
+
+melted_cormat <- melted_cormat %>% filter(corr.strength!=0)
+# Create a ggheatmap
+ggheatmap <- ggplot(melted_cormat, aes(Var2, Var1, fill = corr.strength), alpha = 0.8)+
+ geom_tile(color = "white")+
+  scale_fill_manual(values = color_list, 
+    name="Pearson's\nCorrelation", labels = corr_lables_list) +
+  theme_minimal()+ # minimal theme
+ theme(axis.text.x = element_text(angle = 60, vjust = 1, 
+    size = 12, hjust = 1))+
+ coord_fixed()
+# Print the heatmap with values
+ggcorr_labs<- ggheatmap + 
+geom_text(aes(Var2, Var1, label = value), color = "black", size = .95, fontface='bold') +
+theme_classic()+
+theme(legend.position= c(0.13,0.8), 
+        axis.text = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 5), 
+        axis.title = element_blank(),
+        #(face = "bold", color = "black", size = 30),
+        legend.title = element_text(size = 7, face="bold"),
+        legend.key.size = unit(0.3, "cm"),
+        legend.key.width = unit(0.3,"cm"),
+        legend.text = element_text(size = 6, face = "bold"),
+        panel.grid.minor = element_blank(),
+      panel.background = element_blank(),
+        #axis.text.x=element_text(margin = margin(t = 10)),
+      axis.line = element_blank(),
+      axis.ticks = element_line(size = 0.3),
+         panel.border = element_rect(colour = "black", fill=NA, size=.5),
+        #axis.text.x=element_text(margin = margin(t = 20)),
+          plot.title = element_text(size = 12, face = "bold", color = "black", hjust = 0.5),
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)
+      )+
+ggtitle(paste("Correlation Matrix Including Lab Values of",nrow(new.dataf),"Patients"))
+
+ggcorr_labs  
+ggsave("New_Correlation_Matrix_labs_103p_all.pdf", widt = 10, height = 10, dpi = 600)
+#ggsave("New_Correlation_signif_Matrix_labs_100p_all.pdf", widt = 6, height = 6, dpi = 600)
+```
+#Hypothesis Testing
+##Physical Frailty
+```{r}
+df2=my.stat.data#sig.data[-c(1,8),]
+df2$SPPB.Score <- as.numeric(df2$SPPB.Score)
+df2 <- mutate(df2, PreFrailty = SPPB.Score)
+#Set Class lables
+df3 <- mutate(df2, PreFrailty = ifelse(SPPB.Score >= 9,"No","Yes"))
+df3$PreFrailty <- as.factor(df3$PreFrailty)
+#df2yes <- df2 %>% filter(PreFrailty =="Yes")
+comp.df.stat <- df3 %>%
+                        group_by(PreFrailty) %>%
+                        get_summary_stats(type = "common") %>%
+                        arrange(variable) %>%
+                        print
+
+#write.csv(comp.df.stat, file = "Summary.Stat.differences.prefrailty.labs.csv", row.names = FALSE)
+```
+
+##Osteoporotoic-DXA
+```{r}
+df2=my.stat.data#sig.data[-c(1,8),]
+df2$Bone.mineral.density.femoral.neck
+#Set Class lables
+df4 <- mutate(df2, Osteoporosis= ifelse(Bone.mineral.density.femoral.neck > 0.549 & Bone.mineral.density.L1 > 0.746,0,1))
+df4$Osteoporosis <- as.factor(df4$Osteoporosis)
+#df2yes <- df2 %>% filter(PreFrailty =="Yes")
+comp.df.stat.osteo <- df3 %>%
+                        group_by(PreFrailty) %>%
+                        get_summary_stats(type = "common") %>%
+                        arrange(variable) %>%
+                        print
+
+write.csv(comp.df.stat.osteo, file = "Summary.Stat.differences.osteoporotic.labs.csv", row.names = FALSE)
+```
+
+#Descriptive Statistics 
+##Demographic Table
+```{r}
+library(demoGraphic)
+#prepare clear data
+demographic_table <- demo_table(coln.stat.data, strata= "PreFrailty", data = df3)
+mydocx(demographic_table$demo_table,"demographic_table_Labs")
+
+demographic_table_osteo <- demo_table(coln.stat.data, strata= "Osteoporosis", data = df4)
+mydocx(demographic_table_osteo$demo_table,"demographic_table_osteo")
+
+```
+
+#PCA_Labs
+```{r}
+library(factoextra)
+data <- my.stat.data
+
+#Set Variables of Interest
+#Transform Data
+data <- mutate_all(data, 
+                        function(x) as.numeric(as.character(x)))
+data<- rfImpute(Age ~ ., data = data, iter=5, ntree=100)
+#data <- replace_na(data,as.list(colMeans(data,na.rm=T)))
+#neural.data <- data
+#Transform Data
+data <- mutate(data, fall_risk = ifelse(SPPB.Score < 8,1,0))
+data[data == "?"] <- NA
+data <- mutate(data, Osteoporosis= ifelse(Bone.mineral.density.femoral.neck > 0.549 & Bone.mineral.density.L1 > 0.746,0,1))
+
+Corr.Data.Labs <- data
+
+Corr.Data.Labs <- Corr.Data.Labs
+
+pre.data <- Corr.Data.Labs
+data.pca <- prcomp(pre.data, center = TRUE,scale. = TRUE)
+summary(data.pca)
+data.pca
+data$Handgripstrength.dominant.hand
+pca_vars <- fviz_pca_var(data.pca, axes = c(1,2),
+             col.var = "coord",
+             gradient.cols = c('#9D9D9D', '#A6CA56','#007E36'),
+             #addEllipses=TRUE, ellipse.level=0.2,
+             #habillage = data.pca,
+             #palette = "RdBu",
+             # select.var = list(name = c('Sodium', 
+             #                            'Calcium',
+             #                            'TUG_Test.Time',
+             #                            'Handgripstrength.dominant.hand',
+             #           'Myoglobin',
+             #            'Vitamin.D3',
+             #            'C.reactive.protein',
+             #           'Calcium',
+             #            'Sodium',
+             #            'Creatine.Kinase',
+             #            'visceral.fat.percentage',
+             #            'Haemoglobin', 
+             #           'SPPB.Score',
+             #           'Age','Osteoporosis', 'PreFrailty', 'Leukocytes', 'Calf.circumference', 'SARC_F.Score', 'Total.protein')),
+             repel = TRUE # Avoid text overlapping
+             )+
+  ggtitle("Labs - Variables PCA ")+
+  theme_bw()+
+  theme(plot.title = element_text(face = "bold", color = "black"),
+        legend.position = "bottom")
+
+
+#ggsave("Variables_PCA_Labs_V1.pdf", width = 10, height= 10, dpi = 600)
+
+pca_ind <- fviz_pca_ind(data.pca, geom = "text", pointsize = 3, axes = c(1,7), habillage=pre.data$fall_risk, addEllipses=TRUE, ellipse.level=0.8, alpha.ind="contrib")+
+  xlim(-10,10)+
+  ylim(-10,10)+
+  ggtitle("Individuals PCA - Grouped by Fall Risk")+
+  theme_bw()+
+  theme(plot.title = element_text(face = "bold", color = "black"),
+        legend.position = "bottom")
+pca_ind
+ggsave("ind_pca_grouped_fallrisk_text.pdf")
+
+
+fviz_pca_ind(data.pca,  pointsize = 1, axes = c(1,1), habillage=pre.data$Osteoporosis, addEllipses=TRUE, ellipse.level=0.95, alpha.ind="contrib")+
+  ggtitle("Individuals PCA - Grouped by Fall Osteoporosis")+
+  theme_minimal()
+ggsave("ind_pca_grouped_fallrisk.pdf")
+
+
+Cont.Dim1 <- fviz_contrib(data.pca, choice = "var", axes = 1, top = 10, color = "deepskyblue4", fill = "deepskyblue4")+
+  theme(axis.title = element_text(face = "bold", colour = "black"),
+        axis.text = element_text(face = "bold", colour = "black"),
+        title = element_text(face = "bold", colour = "black"))
+# Contributions of variables to PC2
+Cont.Dim2 <- fviz_contrib(data.pca, choice = "var", axes = 2, top = 10, color = "deepskyblue4", fill = "deepskyblue4")+
+  theme(axis.title = element_text(face = "bold", colour = "black"),
+        axis.text = element_text(face = "bold", colour = "black"),
+        title = element_text(face = "bold", colour = "black"))
+Cont.Dim3 <- fviz_contrib(data.pca, choice = "var", axes = 3, top = 10, color = "deepskyblue4", fill = "deepskyblue4")+
+  theme(axis.title = element_text(face = "bold", colour = "black"),
+        axis.text = element_text(face = "bold", colour = "black"),
+        title = element_text(face = "bold", colour = "black"))
+Cont.Dim4 <- fviz_contrib(data.pca, choice = "var", axes = 4, top = 10, color = "deepskyblue4", fill = "deepskyblue4")+
+  theme(axis.title = element_text(face = "bold", colour = "black"),
+        axis.text = element_text(face = "bold", colour = "black"),
+        title = element_text(face = "bold", colour = "black"))
+
+library(ggpubr)
+ggarrange(Cont.Dim1, Cont.Dim2, Cont.Dim3, Cont.Dim4)
+ggsave("Screeplot_PCA_insole.pdf", width = 12, height = 12)
+
+ggarrange(pca_vars,pca_ind)
+ggsave("PCA_Zusammenfassung1_7.pdf", width =7, height = 4)
+```
+
+#Machine learning
+##Data Preperation
+```{r}
+library(purrr)
+data <- my.stat.data
+#Transform Data
+data <- mutate_all(data, 
+                        function(x) as.numeric(as.character(x)))
+#data<- rfImpute(Age ~ ., data = data, iter=5, ntree=100)
+#data <- replace_na(data,as.list(colMeans(data,na.rm=T)))
+neural.data <- data
+#Transform Data
+data <- mutate(data, fall_risk = ifelse(SPPB.Score < 10,1,0))
+data <- mutate(data, PreFrailty = ifelse(SPPB.Score < 9,1,0))
+#data[data == "?"] <- NA
+data <- mutate(data, Osteoporosis= ifelse(Bone.mineral.density.femoral.neck > 0.549 & Bone.mineral.density.L1 > 0.746,0,1))
+data_with_factors <- data %>%
+    purrr::modify_at(c("SPPB.Score", 
+                       "SARC_F.Score", 
+                       "daily_leaving_appartment",
+                       "weekly_sports",
+                       "smoking",
+                       "self_sustaining",
+                       "past_falls",
+                       "Stolpern",
+                       "fall_risk",
+                       "Osteoporosis",
+                       "PreFrailty"), factor)
+
+
+#Impute missing data
+#data.imputed <- replace_na(data,as.list(colMeans(corr.data,na.rm=T)))
+#data.imputed <- as.data.frame(data.imputed)
+library(randomForest)
+data.imputed <- rfImpute(SPPB.Score~., data = data_with_factors, iter=5, ntree=100)
+write.csv(data.imputed, "lab.data.imputed.csv")
+data.imputed_select =data.imputed %>%  select(PreFrailty,Age, Bone.mineral.density.femoral.neck, C.reactive.protein, Calcium.corr., Calf.circumference, Handgripstrength.dominant.hand, Myoglobin, Vitamin.D3)
+head(data.imputed_select)
+
+```
+```{r}
+library(ggplot2) 
+library(dplyr)
+library(Hmisc)
+library(reshape2)
+
+#macchine learning libraries
+library(mlr3)
+library(mlr3learners)
+library(mlr3tuning)
+library("mlr3verse")
+library(mlr3pipelines)
+```
+##Tasks
+```{r}
+data.mlr <- data.imputed
+data.mlr.reduced <- data.imputed %>% select(-c(SPPB.Score, TUG_Test.Time,Time.for.4m,Time.for.5x.sit.to.stand, fall_risk))
+normalize <- function(x) {
+  return ((x - min(x)) / (max(x) - min(x)))
+}
+neural.data2<- mutate_all(data.mlr.reduced, function(x) as.numeric(as.character(x)))
+normalized.data <- as.data.frame(lapply(neural.data2, normalize))
+
+normalized.data$PreFrailty <- as.factor(normalized.data$PreFrailty)
+
+data.exp.op = data.mlr %>% select('PreFrailty','Age',
+                           'Bone.mineral.density.femoral.neck',
+                           'C.reactive.protein',
+                           'Calcium.corr.',
+                           'Calf.circumference',
+                           'Handgripstrength.dominant.hand',
+                           #'Stolpern',
+                           #'daily_leaving_appartment',
+                           #'past_falls',
+                           'Myoglobin',
+                           'Vitamin.D3'
+                           )
+
+data.exp.2 = data.mlr %>% select("PreFrailty","Age", "C.reactive.protein", "EQ5_Index", "Handgripstrength.dominant.hand",
+    "Myoglobin","SARC_F.Score")
+
+#set tasks
+task_ExOp <-TaskClassif$new(id="Predict.Patients.at.Fall.Risk", as_data_backend(data.exp.op), "PreFrailty", positive = "1", extra_args = list())
+task_ExOp2 <-TaskClassif$new(id="Predict.Patients.at.Fall.Risk", as_data_backend(data.exp.2), "PreFrailty", positive = "1", extra_args = list())
+task.norm <- TaskClassif$new(id="Predict.Patients.at.Fall.Risk", as_data_backend(normalized.data), "PreFrailty", positive = "1", extra_args = list())
+task_nonmobility <- TaskClassif$new(id="Predict.Patients.at.Fall.Risk_non_mobility", as_data_backend(data.mlr.reduced), "PreFrailty", positive = "1", extra_args = list())
+task_full <- TaskClassif$new(id="Predict.Patients.at.Fall.full", as_data_backend(data.mlr), "PreFrailty", positive = "1", extra_args = list())
+```
+##Feature Selection
+###Random Search Log Reg
+```{r}
+set.seed(3)
+task = TaskClassif$new(id="Predict.Patients.at.Fall.Risk", as_data_backend(data.mlr.reduced), target = "PreFrailty", positive = "1", extra_args = list())
+
+learner = lrn("classif.log_reg")
+resampling = rsmp("cv", folds = 3)
+measure = msr("classif.ce")
+
+resampling$instantiate(task)
+
+library(mlr3fselect)
+
+terminator = trm("run_time", secs = 20)
+FSelectInstanceSingleCrit$new(
+  task = task, 
+  learner = learner, 
+  resampling = resampling, 
+  measure = measure, 
+  terminator = terminator)
+mlr_fselectors
+terminator = trm("evals", n_evals = 10)
+#Random Search Feature Selector
+instance = FSelectInstanceSingleCrit$new(
+  task = task, 
+  learner = learner, 
+  resampling = resampling, 
+  measure = measure, 
+  terminator = terminator)
+fselector = fs("random_search", batch_size = 1, max_features = 10)
+#fselector = fs("rfe",feature_fraction = 0.2, recursive = FALSE)
+#optimize#
+fselector$param_set$values
+fselector$optimize(instance)
+#overview of all evals
+as.data.table(instance$archive)
+#benchmark for comparison
+instance$archive$benchmark_result
+#best performing Result
+instance$result
+#extract relevant Features
+as.data.table(instance$archive)
+instance$result
+task$select(instance$result_feature_set)
+task_rls<- task
+task_rls$feature_names
+#task_rls$select(c("Age","C.reactive.protein", "EQ5_Index",
+  #                "Gamma.gluteryl.transferase","Leukocytes", "Myoglobin" , "Vitamin.D3","estimated_gz"))
+task_rls
+#fencoder$train(list(task_rls))
+task_rls
+```
+#Outlier removal
+```{r}
+install.packages("solitude")
+library(isotree)
+library(solitude)
+outlier = isolationForest$new()
+outlier$sample_size = 103
+outlier$num_trees = 1000
+outlier$fit(data.mlr)
+outlier$predict(data.mlr)
+
+data.out <- data.exp.op
+set.seed(1)
+index = sample(ceiling(nrow(data.out) * 0.5))
+# initiate an isolation forest
+iso = isolationForest$new(sample_size = length(index))
+iso$num_trees = 1000
+iso$fit(dataset = data.out)#[index, ])
+prd.data <- iso$predict(data.out)#[index, ]) # s
+iso$predict(data.out)#[-index, ])
+
+scores_train = iso$predict(data.out[index, ])
+scores.ordered <- scores_train[order(anomaly_score, decreasing = TRUE)]
+z <- scores.ordered$id[1:5]
+
+iso$fit(dataset =data.out[-index, ]) # s
+iso$predict(data.out[index, ])
+
+scores_train = iso$predict(data.out[index, ])
+scores.ordered <- scores_train[order(anomaly_score, decreasing = TRUE)]
+z <- scores.ordered$id[1:5]
+data.mlr.rem <- data.mlr %>% filter(-c(unlist(z)))
+data.mlr$SPPB.Score <- as.numeric(data.mlr$SPPB.Score)
+data.mlr3 <- data.mlr %>% filter(SPPB.Score > 0)
+```
+##Isolation Forest
+```{r}
+iso.two <- isolation.forest(data.mlr.reduced,sample_size = nrow(data.mlr), output_imputations= TRUE)
+#predict.isolation_forest(newdata= data.mlr, iso.two)
+# initiate an isolation forest
+iso = isolationForest$new(sample_size = length(index))
+iso$num_trees = 1000
+iso$fit(dataset = data.mlr.reduced)#[index, ])
+prd.data <- iso$predict(data.mlr.reduced)#[index, ]) # s
+iso$predict(data.mlr.reduced)#[-index, ])
+prd.data <- iso$predict(data.mlr.reduced)
+prd.data2 <- prd.data %>% filter(anomaly_score<0.60)
+ml.data <- data.mlr.reduced %>% filter(rownames(data.mlr.reduced) %in% prd.data2$id)
+#rownames(data.mlr)
+
+```
+
+###Sequential Forward Feature Selection
+```{r}
+#Überspringen!!
+#try out of sequential forward selection
+# task <- TaskClassif$new(id="Predict.Patients.at.Fall.Risk", as_data_backend(ml.data), "PreFrailty", positive = "1", extra_args = list())
+# terminator = trm("stagnation", 
+#                  iters = 15, #increase iterations!
+#                  threshold = 3)
+# instance = FSelectInstanceSingleCrit$new(
+#   task = task, 
+#   learner = learner, 
+#   resampling = resampling, 
+#   measure = measure, 
+#   terminator = terminator)
+# 
+# fselector = fs("sequential", max_features = 5)
+# fselector$optimize(instance)
+# fselector$param_set$values
+# ##Extract Features
+# as.data.table(instance$archive)
+# instance$result
+# task$select(instance$result_feature_set)
+# task_sfs<- task
+# task_sfs
+#fencoder$train(list(task_sfs))
+```
+
+###Recursive Feature elemination
+###FeatureSelection Elastic Net
+```{r}
+#using sequential 
+#normalized.one.insole$fall_risk_1 = as.factor(normalized.one.insole$fall_risk_1)
+
+task <- TaskClassif$new(id="Predict.Patients.at.PreFrailty", as_data_backend(ml.data), "fall_risk", positive = "1", extra_args = list())
+
+fencoder = po("encode", method = "treatment",
+  affect_columns = selector_type("factor"))
+fencoder = po("encode", method = "one-hot",
+  affect_columns = selector_type("factor"))
+learner = lrn("classif.glmnet")
+terminator = trm("evals", n_evals = 30)
+instance = FSelectInstanceSingleCrit$new(
+  task = task, 
+  learner = learner, 
+  resampling = resampling, 
+  measure = measure, 
+  terminator = terminator,
+  store_models = TRUE)
+
+fselector = fs("rfe",feature_fraction = 0.05, recursive = FALSE
+               )
+
+fselector$optimize(instance)
+# fselector$param_set$values$min_features = 5
+# fselector$param_set$values
+# $feature_number= 0.25
+##Extract Features
+as.data.table(instance$archive)
+instance$result
+task$select(instance$result_feature_set)
+task
+task_rfe <- task_ExOp
+head(normalized.one.insole)
+#fencoder = po("encode", method = "one-hot",
+#   affect_columns = selector_type("factor"))
+# 
+# task_rfe<- fencoder$train(list(task_rfe))
+# task_rfe
+```
+##Auto FSelect
+```{r}
+terminator = trm("stagnation", iters = 15, threshold = 3)
+instance = FSelectInstanceSingleCrit$new(
+  task = task, 
+  learner = learner, 
+  resampling = resampling, 
+  measure = measure, 
+  terminator = terminator)
+
+fselector = fs("sequential", max_features = 5)
+fselector$optimize(instance)
+fselector$param_set$values
+##Extract Features
+as.data.table(instance$archive)
+instance$result
+task$select(instance$result_feature_set)
+task_sfs<- task
+task_sfs
+#fencoder$train(list(task))
+```
+
+```{r}
+set.seed(3)
+task <- TaskClassif$new(id="Predict.Patients.at.Fall.Risk", as_data_backend(ml.data), "PreFrailty", positive = "1", extra_args = list())
+resampling = rsmp("cv", folds = 3)
+measure = msr("classif.ce")
+#using sequential 
+learner = lrn("classif.ranger", importance = "impurity_corrected")
+terminator = trm("none")
+instance = FSelectInstanceSingleCrit$new(
+  task = task, 
+  learner = learner, 
+  resampling = resampling, 
+  measure = measure, 
+  terminator = terminator,
+  store_models = TRUE)
+fselector = fs("rfe",feature_fraction = 0.4, recursive = FALSE
+               )
+fselector$optimize(instance)
+# fselector$param_set$values$min_features = 5
+# fselector$param_set$values
+# $feature_number= 0.25
+##Extract Features
+as.data.table(instance$archive)
+instance$result
+task$select(instance$result_feature_set)
+task
+task_rfe_randomforest = task#$select(c('Age','C.reactive.protein', 'Dom_Hand', 'EQ5_Index', 'Leukocytes','Low_Hand', 'Myoglobin'))
+```
+###Boxplot_Comparison of Feature Selections
+```{r}
+#install.packages("genalg")
+grid = benchmark_grid(
+  task = list(task_rls, task_ExOp, task_ExOp2),
+  learner = list(lrn("classif.ranger",predict_type = "prob")),
+  resampling = rsmp("cv", folds = 3)
+)
+# avoid console output from mlrfselect
+logger = lgr::get_logger("bbotk")
+logger$set_threshold("warn")
+
+bmr = benchmark(grid, store_models = TRUE)
+bmr$aggregate(msrs(c("classif.fbeta", "classif.ce", "classif.auc")))
+#bmr_featureS <- as.data.frame(as.data.table(bmr$aggregate(msrs(c("classif.fbeta", "classif.ce", "classif.auc")))))
+
+#write.csv(bmr_featureS,"FeatureSelectionBMR.csv")
+feature_box <- autoplot(bmr,"boxplot", fill = c("#E64B35B2", "#4DBBD5B2", "#00A087B2"))
+
+feature_box+
+    ggtitle("Comparison of Feature Selection Strategies for Prediction of Patients Physical Frailty")+
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 0.4)) +
+  #scale_x_discrete(breaks=c("classif.rpart"),
+                      #labels=c("Control", "Treat 1", "Treat 2"))+
+  #scale_x_discrete(labls = c("Random Forest Impoortance", "Logistic Random Feature Selection", "Expert Opinion Selection"))+
+  #                    labels = c("Recursive FS","Random Logistic FS","Sequential Forward FS","Experts Selection"))+
+  ylab("Classification Error")+
+  theme_bw()+
+  #scale_fill_nejm()+
+  theme(legend.position= "none", 
+        axis.text = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10), 
+        axis.title = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10),
+        panel.grid.minor = element_line(),
+      panel.background = element_blank(),
+        #axis.text.x=element_text(margin = margin(t = 10)),
+      axis.line = element_blank(),
+      axis.ticks = element_line(size = 0.3),
+        #axis.text.x=element_text(margin = margin(t = 20)),
+          plot.title = element_text(size = 11, face = "bold", color = "black", hjust = 0),
+        axis.text.x = element_text(angle = 0, vjust = 0, hjust=0.5),
+        strip.background = element_blank(),
+  strip.text.x = element_blank())
+
+
+#ggsave("feature_selection_Comparison_V3.pdf")
+library(ggsci)
+
+mypal = pal_npg("nrc", alpha = 0.7)(3)
+
+mypal_nejm = pal_nejm("default", alpha = 0.7)(9)
+mypal_lancet = pal_lancet("lanonc", alpha = 0.7)(3)
+# show_col(mypal_nejm)
+# show_col(mypal_lancet)
+```
+
+##untuned learner
+```{r}
+set.seed(5)
+library(ranger)
+# task <- TaskClassif$new(id="Predict.Patients.at.Fall.Risk", as_data_backend(data.exp.op), "PreFrailty", positive = "1", extra_args = list())
+learner = mlr_learners$get("classif.ranger")
+print(learner)
+task = task_ExOp2
+task$feature_names
+learner <- lrn("classif.ranger", predict_type = "prob")
+train_set = sample(task$nrow, 0.75 * task$nrow)
+test_set = setdiff(seq_len(task$nrow), train_set)
+learner$train(task, row_ids = train_set)
+prediction = learner$predict(task, row_ids = test_set)
+prediction$score(msr("classif.auc"))
+
+resampling = rsmp("cv", folds = 3L)
+resampling$instantiate(task)
+rr = resample(task, learner, resampling)
+as.data.table(rr)[, list(resampling, iteration, prediction)]
+auc.rf.insole <- rr$aggregate((msr("classif.auc")))
+ce.rf.insole <- rr$aggregate(msr("classif.ce"))
+#View all predictions
+rr$prediction()$response
+rr$score(msr("classif.fbeta"))
+rf.plot <- autoplot(rr, type = "roc")+
+  ggtitle("ROC Curve Random Forest")
+ggplot2::autoplot(prediction, type = "roc")
+rf.plot3 <- rf.plot+
+  scale_y_continuous(expand = c(0.0005, 0.0005)) + 
+  theme_bw()+
+  theme(legend.position = "none",
+        legend.text = element_blank(),
+        axis.text = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10), 
+        axis.title = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10),
+        panel.grid.minor = element_line(),
+      panel.background = element_blank(),
+        #axis.text.x=element_text(margin = margin(t = 10)),
+      axis.line = element_blank(),
+      axis.ticks = element_line(size = 0.3),
+         panel.border = element_rect(colour = "black", fill=NA, size=.5),
+        #axis.text.x=element_text(margin = margin(t = 20)),
+          plot.title = element_text(size = 14, face = "bold", color = "black", hjust = 0),
+        axis.text.x = element_text(angle = 0, vjust = 0, hjust=0.5),
+        strip.background = element_blank(),
+  strip.text.x = element_blank()
+      )+
+  annotate("text", x = 0.7, y = 0.35, label = paste("Estimation of AUC:",round(auc.rf.insole,3)), fontface="bold",fontsize=30)+
+  annotate("text", x = 0.7, y = 0.30, label = paste("Classification Error:",round(ce.rf.insole,3)), fontface="bold", fontsize=30)+
+   annotate("text", x = 0.7, y = 0.25, label = paste("Estimation of Gini:",round(2*auc.rf.insole-1,3)), fontface="bold",fontsize=30)
+rf.plot3
+#ggsave("KNN_randomForest_Feature_Selection_Labs.pdf")
+   # annotate("text", x = 0.55, y = 0.1, label = paste("Features:",nrows(task$feature_names)), fontsize = 2)
+  #annotate("text", x = 0.5, y = 0.06, label = "Gait Cadence, Gait Speed")
+#ggsave("Untuned_random_Forest_gait.pdf")
+
+predrf = learner$train(task)$predict(task)
+test_table <- as.data.table(predrf)
+test_table[test_set]$response
+C = predrf$confusion
+print(C)
+
+
+
+```
+
+#IML
+```{r}
+library(iml)
+task = task_ExOp2
+model = Predictor$new(learner, data = data.mlr.reduced, y = data.mlr.reduced$PreFrailty)
+effect = FeatureImp$new(model, loss = "ce", )
+effect = FeatureEffects$new(model)#
+effect$plot(features = c("Handgripstrength.dominant.hand","Myoglobin","EQ5_Index","Age","C.reactive.protein","SARC_F.Score"))
+  # features = c("Number.of.steps",
+  # "Mean.length.width.of.gait.line..left...mm.",
+  # "Mean.length.width.of.gait.line..right...mm.",
+  # "Mean.stride.length..m.",
+  # "COP.trace.length..left...m.",
+  #  "Mean.acceleration..y..over.gait.cycle..right...g.")) 
+#features = c("bill_length","bill_depth", "flipper_length", "body_mass", "body_mass","year"))
+#ggsave("effect_plot_labs.pdf", width =30, height = 30)
+```
+#Parallelization
+```{r}
+# Runs both loops in parallel
+future::plan(list(future::tweak("multisession", workers = 2),
+                  future::tweak("multisession", workers = 2)))
+```
+
+
+#DALEX
+```{r}
+# install.packages("DALEX")
+# install.packages("DALEXtra")
+library("DALEX")
+library("DALEXtra")
+
+ranger_exp <- explain_mlr3(learner,
+        data     = data.mlr.reduced,
+        y        = data.mlr.reduced$PreFrailty,
+        label    ="classif.ranger",
+        colorize = FALSE)
+fifa_vi <- model_parts(ranger_exp)
+plot(fifa_vi, max_vars = 5, show_boxplots = TRUE)
+```
+
+
+Autotune RF
+```{r}
+library(paradox)
+task = task_rfe_randomforest 
+learner$param_set
+learner = lrn("classif.ranger", predict_type = "prob")
+learner$param_set$values$mtry = to_tune(p_int(1, 9))
+learner$param_set$values$max.depth = to_tune(p_int(1, 15))
+#learner$param_set$values$kernel = to_tune(c("polynomial", "radial"))
+learner$param_set$values$num.trees = to_tune(p_int(150, 1000))
+
+rr = tune_nested(
+  method = "grid_search",
+  task = task_rfe_randomforest,
+  learner = learner, 
+  inner_resampling = rsmp ("cv", folds = 3),
+  outer_resampling = rsmp("cv", folds = 3), 
+  measure = msr("classif.ce"),
+  resolution = 5
+)
+
+cf.rft.insole <- rr$aggregate(msr("classif.ce"))
+auc.rft.insole <- rr$aggregate(msr("classif.auc"))
+f1.rft.insole <- rr$aggregate(msr("classif.fbeta"))
+tuned_rf <- autoplot(rr, type = "roc")+
+  ggtitle("ROC Curve Random Forest Tuned")
+
+rf.plot_tuned_labs <- tuned_rf+
+  scale_y_continuous(expand = c(0.0005, 0.0005)) + 
+  theme_bw()+
+  theme(legend.position = "none",
+        legend.text = element_blank(),
+        axis.text = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10), 
+        axis.title = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10),
+        panel.grid.minor = element_blank(),
+      panel.background = element_blank(),
+        #axis.text.x=element_text(margin = margin(t = 10)),
+      axis.line = element_blank(),
+      axis.ticks = element_line(size = 0.3),
+         panel.border = element_rect(colour = "black", fill=NA, size=.5),
+        #axis.text.x=element_text(margin = margin(t = 20)),
+          plot.title = element_text(size = 14, face = "bold", color = "black", hjust = 0),
+        axis.text.x = element_text(angle = 0, vjust = 0, hjust=0.5),
+        strip.background = element_blank(),
+  strip.text.x = element_blank(),
+      )+
+  annotate("text", x = 0.7, y = 0.35, label = paste("Estimation of AUC:",round(auc.rft.insole,3)), fontface="bold",fontsize=30)+
+  annotate("text", x = 0.7, y = 0.30, label = paste("Classification Error:",round(cf.rft.insole,3)), fontface="bold", fontsize=30)+
+  annotate("text", x = 0.7, y = 0.25, label = paste("Estimation of Gini:",round(2*auc.rft.insole-1,3)), fontface="bold",fontsize=30)
+
+rf.plot_tuned_labs
+ggsave("RF_exopFS_tuned_rem_V1.pdf", width = 5, height = 5)
+```
+#Tuning
+##KNN Autotune
+###Autotuner
+```{r}
+#Parameters to add:
+knn = lrn("classif.kknn", predict_type = "prob")
+knn$param_set$values$kernel = "rectangular"
+knn$param_set
+library("paradox")
+search_space = ParamSet$new(list(
+  ParamInt$new("k", lower = 3, upper = 20),
+  ParamInt$new("distance", lower = 1, upper = 2)
+))
+
+grid_auto = AutoTuner$new(
+  learner = knn,
+  resampling = rsmp("cv", folds = 5), # we can NOT use fixed resampling here
+  measure = msr("classif.ce"),
+  terminator = trm("none"),
+  tuner = tnr("grid_search", resolution = 18),
+  search_space = search_space
+)
+
+rr = resample(task, grid_auto, cv10_instance, store_models = TRUE)
+
+rr$aggregate()
+rr$learners[[1]]$tuning_result
+
+cf.knn<- rr$aggregate(msr("classif.ce"))
+auc.knn <- rr$aggregate(msr("classif.auc"))
+f1.knn <- rr$aggregate(msr("classif.fbeta"))
+tuned_knn <- autoplot(rr, type = "roc")+
+  ggtitle("ROC KNN-Tuned")
+
+knn.plot_tuned_labs <- tuned_knn+
+  scale_y_continuous(expand = c(0.0005, 0.0005)) + 
+  theme_bw()+
+  theme(legend.position = "none",
+        legend.text = element_blank(),
+        axis.text = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10), 
+        axis.title = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10),
+        panel.grid.minor = element_blank(),
+      panel.background = element_blank(),
+        #axis.text.x=element_text(margin = margin(t = 10)),
+      axis.line = element_blank(),
+      axis.ticks = element_line(size = 0.3),
+         panel.border = element_rect(colour = "black", fill=NA, size=.5),
+        #axis.text.x=element_text(margin = margin(t = 20)),
+          plot.title = element_text(size = 14, face = "bold", color = "black", hjust = 0),
+        axis.text.x = element_text(angle = 0, vjust = 0, hjust=0.5),
+        strip.background = element_blank(),
+  strip.text.x = element_blank(),
+      )+
+  annotate("text", x = 0.7, y = 0.35, label = paste("Estimation of AUC:",round(auc.knn,3)), fontface="bold",fontsize=30)+
+  annotate("text", x = 0.7, y = 0.30, label = paste("Classification Error:",round(cf.knn,3)), fontface="bold", fontsize=30)+
+  annotate("text", x = 0.7, y = 0.25, label = paste("Estimation of Gini:",round(2*auc.knn-1,3)), fontface="bold",fontsize=30)
+
+knn.plot_tuned_labs
+```
+
+##optimzation of Random Forest
+```{r}
+set.seed(8008135)
+cv10_instance = rsmp("cv", folds = 10)
+
+# fix the train-test splits using the $instantiate() method
+cv10_instance$instantiate(task)
+
+# have a look at the test set instances per fold
+cv10_instance$instance
+
+ranger = lrn("classif.ranger", predict_type = "prob")
+print(ranger$param_set)
+ranger$param_set$values$num.trees = to_tune(10, 500)
+ranger$param_set$values$mtry = to_tune(2, 40)
+
+resampling = rsmp("cv", folds = 3)
+measure = msr("classif.ce")
+terminator = trm("none")
+
+instance = TuningInstanceSingleCrit$new(
+  task = task,
+  learner = ranger,
+  resampling = resampling,
+  measure = measure,
+  terminator = terminator
+)
+
+print(instance)
+tuner = tnr("grid_search", resolution = 5)
+
+print(tuner)
+generate_design_grid(ranger$param_set$search_space(), resolution = 5)
+#Surface Plot of Search Task
+autoplot(instance, type = "surface", cols_x = c("mtry", "num.trees"))+
+  ggtitle("Grid Search of Random Forest Optimization")
+#ggsave("Grid_Search_Tuning_RF.pdf")
+
+#final model
+learner = ranger
+learner$param_set$values = instance$result_learner_param_vals
+learner$train(task)
+#results of final model
+instance$result_y
+learner$train(task, row_ids = train_set)
+
+```
+
+##Autotune RF
+```{r}
+library(paradox)
+learner$param_set
+learner = lrn("classif.ranger", predict_type = "prob")
+learner$param_set$values$mtry = to_tune(p_int(1, 9))
+learner$param_set$values$max.depth = to_tune(p_int(1, 15))
+#learner$param_set$values$kernel = to_tune(c("polynomial", "radial"))
+learner$param_set$values$num.trees = to_tune(p_int(150, 1000))
+
+rr = tune_nested(
+  method = "grid_search",
+  task = task_rfe_randomforest,
+  learner = learner, 
+  inner_resampling = rsmp ("cv", folds = 3),
+  outer_resampling = rsmp("cv", folds = 3), 
+  measure = msr("classif.ce"),
+  resolution = 5 #Chang on Workstation
+)
+
+cf.rft.insole <- rr$aggregate(msr("classif.ce"))
+auc.rft.insole <- rr$aggregate(msr("classif.auc"))
+f1.rft.insole <- rr$aggregate(msr("classif.fbeta"))
+tuned_rf <- autoplot(rr, type = "roc")+
+  ggtitle("ROC Curve Random Forest Tuned")
+
+rf.plot_tuned_labs <- tuned_rf+
+  scale_y_continuous(expand = c(0.0005, 0.0005)) + 
+  theme_bw()+
+  theme(legend.position = "none",
+        legend.text = element_blank(),
+        axis.text = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10), 
+        axis.title = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10),
+        panel.grid.minor = element_blank(),
+      panel.background = element_blank(),
+        #axis.text.x=element_text(margin = margin(t = 10)),
+      axis.line = element_blank(),
+      axis.ticks = element_line(size = 0.3),
+         panel.border = element_rect(colour = "black", fill=NA, size=.5),
+        #axis.text.x=element_text(margin = margin(t = 20)),
+          plot.title = element_text(size = 14, face = "bold", color = "black", hjust = 0),
+        axis.text.x = element_text(angle = 0, vjust = 0, hjust=0.5),
+        strip.background = element_blank(),
+  strip.text.x = element_blank(),
+      )+
+  annotate("text", x = 0.7, y = 0.35, label = paste("Estimation of AUC:",round(auc.rft.insole,3)), fontface="bold",fontsize=30)+
+  annotate("text", x = 0.7, y = 0.30, label = paste("Classification Error:",round(cf.rft.insole,3)), fontface="bold", fontsize=30)+
+  annotate("text", x = 0.7, y = 0.25, label = paste("Estimation of Gini:",round(2*auc.rft.insole-1,3)), fontface="bold",fontsize=30)
+
+rf.plot_tuned_labs
+#ggsave("RF_exopFS_tuned_V4.pdf", width = 5, height = 5)
+```
+##Autotune XGboost
+```{r}
+library(paradox)
+learner$param_set
+learner = lrn("classif.xgboost", predict_type = "prob")
+learner$param_set$values$nrounds = to_tune(p_int(100, 5000))
+learner$param_set$values$max_depth = to_tune(p_int(1, 15))
+#learner$param_set$values$kernel = to_tune(c("polynomial", "radial"))
+#learner$param_set$values$num.trees = to_tune(p_int(150, 1000))
+
+rr = tune_nested(
+  method = "grid_search",
+  task = task_ExOp,
+  learner = learner, 
+  inner_resampling = rsmp ("cv", folds = 3),
+  outer_resampling = rsmp("cv", folds = 3), 
+  measure = msr("classif.ce"),
+  resolution = 3 #Chang on Workstation
+)
+
+cf.rft.insole <- rr$aggregate(msr("classif.ce"))
+auc.rft.insole <- rr$aggregate(msr("classif.auc"))
+f1.rft.insole <- rr$aggregate(msr("classif.fbeta"))
+tuned_rf <- autoplot(rr, type = "roc")+
+  ggtitle("ROC Curve XG Boost Tuned")
+
+xgb.plot_tuned_labs <- tuned_rf+
+  scale_y_continuous(expand = c(0.0005, 0.0005)) + 
+  theme_bw()+
+  theme(legend.position = "none",
+        legend.text = element_blank(),
+        axis.text = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10), 
+        axis.title = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10),
+        panel.grid.minor = element_blank(),
+      panel.background = element_blank(),
+        #axis.text.x=element_text(margin = margin(t = 10)),
+      axis.line = element_blank(),
+      axis.ticks = element_line(size = 0.3),
+         panel.border = element_rect(colour = "black", fill=NA, size=.5),
+        #axis.text.x=element_text(margin = margin(t = 20)),
+          plot.title = element_text(size = 14, face = "bold", color = "black", hjust = 0),
+        axis.text.x = element_text(angle = 0, vjust = 0, hjust=0.5),
+        strip.background = element_blank(),
+  strip.text.x = element_blank(),
+      )+
+  annotate("text", x = 0.7, y = 0.35, label = paste("Estimation of AUC:",round(auc.rft.insole,3)), fontface="bold",fontsize=30)+
+  annotate("text", x = 0.7, y = 0.30, label = paste("Classification Error:",round(cf.rft.insole,3)), fontface="bold", fontsize=30)+
+  annotate("text", x = 0.7, y = 0.25, label = paste("Estimation of Gini:",round(2*auc.rft.insole-1,3)), fontface="bold",fontsize=30)
+
+xgb.plot_tuned_labs
+#ggsave("RF_exopFS_tuned_V4.pdf", width = 5, height = 5)
+```
+##Autotune SVM
+```{r}
+learner = lrn("classif.svm", type = "C-classification", kernel = "radial", predict_type = "prob")
+learner$param_set$values$cost = to_tune(p_dbl(1e-5, 1e5, logscale = TRUE))
+learner$param_set$values$gamma = to_tune(p_dbl(1e-5, 1e5, logscale = TRUE))
+learner$param_set$values$kernel = to_tune(c("polynomial", "radial"))
+learner$param_set$values$degree = to_tune(1, 4)
+
+instance = tune_nested(
+  method = "grid_search",
+  task = task_ExOp,
+  learner = learner,
+  inner_resampling = rsmp ("cv", folds = 3),
+  outer_resampling = rsmp("cv", folds = 3), 
+  measure = msr("classif.ce"),
+  resolution = 3 #Chang on Workstation
+)
+auc.svm <- instance$aggregate(msr("classif.auc"))
+cf.svm <- instance$aggregate(msr("classif.ce"))
+tuned_svm <- autoplot(instance, type = "roc")+
+  ggtitle("ROC Curve SVM Tuned")
+
+svm.plot_tuned_labs <- tuned_svm+
+  scale_y_continuous(expand = c(0.0005, 0.0005)) + 
+  theme_bw()+
+  theme(legend.position = "none",
+        legend.text = element_blank(),
+        axis.text = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10), 
+        axis.title = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10),
+        panel.grid.minor = element_blank(),
+      panel.background = element_blank(),
+        #axis.text.x=element_text(margin = margin(t = 10)),
+      axis.line = element_blank(),
+      axis.ticks = element_line(size = 0.3),
+         panel.border = element_rect(colour = "black", fill=NA, size=.5),
+        #axis.text.x=element_text(margin = margin(t = 20)),
+          plot.title = element_text(size = 14, face = "bold", color = "black", hjust = 0),
+        axis.text.x = element_text(angle = 0, vjust = 0, hjust=0.5),
+        strip.background = element_blank(),
+  strip.text.x = element_blank(),
+      )+
+  annotate("text", x = 0.7, y = 0.35, label = paste("Estimation of AUC:",round(auc.svm,3)), fontface="bold",fontsize=30)+
+  annotate("text", x = 0.7, y = 0.30, label = paste("Classification Error:",round(cf.svm,3)), fontface="bold", fontsize=30)+
+  annotate("text", x = 0.7, y = 0.25, label = paste("Estimation of Gini:",round(2*auc.svm-1,3)), fontface="bold",fontsize=30)
+
+svm.plot_tuned_labs
+```
+
+##plotgrid
+```{r}
+title <- ggdraw() + 
+  draw_label(
+    "Generalization of physical frailty Classification Algorithms",
+    fontface = 'bold',
+    x = 0.1,
+    hjust = 0,
+    size = 18
+  )
+plot_grid(title, NULL,knn.plot_tuned_labs, svm.plot_tuned_labs, xgb.plot_tuned_labs, rf.plot_tuned_labs, nrow = 3, ncol = 2, rel_heights = c(0.05, 1, 1), labels = c(" "," ","A","B","C", "D"))
+
+ggsave("Comparison_Frailty_Plots_LABS_V2.pdf", width = 12, height = 12)
+```
