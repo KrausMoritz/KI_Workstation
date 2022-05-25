@@ -1,0 +1,1881 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+#Pipeline for PCA and learner
+```{r}
+library(ggplot2) 
+library(dplyr)
+#install.packages("gtsummary")
+library(gtsummary)
+#library(Hmisc)
+#library(reshape2)
+
+#macchine learning libraries
+library(mlr3)
+library(mlr3learners)
+library(mlr3tuning)
+library("mlr3verse")
+library(mlr3pipelines)
+library(mlr3cluster)
+library(mlr3learners)
+#Filters
+library("praznik")
+#Stats
+library(rstatix)
+library(tidyr)
+library(praznik)
+library(reshape2)
+library("ggpubr")
+```
+
+```{r}
+set.seed(7832)
+lgr::get_logger("mlr3")$set_threshold("warn")
+lgr::get_logger("bbotk")$set_threshold("warn")
+```
+#load data
+```{r}
+task.data <- read.csv("/Users/moritzkraus/Documents/Projekte_Research/Projects/TUG_Regression/lab.data.imputed 2.csv" ,header = TRUE, sep = ";", stringsAsFactors = FALSE)
+library(caret)
+#run only for normalization
+# preproc1 <- preProcess(task.data, method=c("center", "scale"))
+# preproc1
+# norm1 <- predict(preproc1, task.data)
+# 
+# task.data <- norm1
+ 
+```
+
+
+```{r}
+#Task
+#DataSet: data.mlr.rem
+#task_sonar = task_ExOp2
+task_reg <-TaskRegr$new(id="Predict.Patients.at.Fall.Risk", as_data_backend(task.data), "TUG_Test.Time", extra_args = list())
+
+task_maxi <-TaskRegr$new(id="Predict.Patients.TUG.Time", as_data_backend(task.data %>% select(TUG_Test.Time, past_falls, Schwindelig, Stolpern, age_menopause, estimated_gz, daily_leaving_appartment,weekly_sports, self_sustaining, Fracture_WK, Fracture_HG, Handgripstrength.dominant.hand, Handgripstrength.non.dominant.hand, Age, Weight, Height, BMI, smoking,Body.fat.percentage, visceral.fat.percentage, Muscle.percentage,Sodium,Potassium,Glucose,GFR,Calcium, Calcium.corr.,Phosphate, C.reactive.protein,Total.protein,Gamma.gluteryl.transferase,alkaline.phosphate,Leukocytes,Erythrozytes,Haemoglobin,Haematokrite,MCV,MCH,MCH,Thrombozytes,TSH, Parathormon, Vitamin.D3, LDH, Creatine.Kinase, Creatinine,Myoglobin,Bone.mineral.density.femoral.neck,Bone.mineral.density.L1,EQ5_Index,SARC_F.Score)), "TUG_Test.Time", extra_args = list())
+```
+#feature selection
+```{r}
+library("mlr3fselect")
+learner_ranger  = lrn("regr.ranger")
+# feature selection on the pima indians diabetes data set
+instance = fselect(
+  method = "random_search",
+  task =  task_reg,
+  learner = lrn("regr.ranger"),
+  resampling = rsmp("holdout"),
+  measure = msr("regr.mse"),
+  term_evals = 100,
+  batch_size = 3
+)
+
+# best performing feature set
+instance$result$regr.mse
+instance$result_feature_set
+```
+
+##AutoFS
+```{r}
+# construct auto tuner
+afs = auto_fselector(
+  method = "random_search",
+  learner = lrn("regr.ranger"),
+  resampling = rsmp("holdout"),
+  measure = msr("regr.mse"),
+  term_evals = 100,
+  batch_size = 10
+)
+
+# train/test split
+train_set = sample(task$nrow, 0.8 * task$nrow)
+test_set = setdiff(seq_len(task$nrow), train_set)
+
+# select features set and fit final model on the complete data set in one go
+afs$train(task, row_ids = train_set)
+
+# best performing feature set
+afs$fselect_result
+```
+
+##Nested FS
+```{r}
+# nested resampling
+rr = fselect_nested(
+  method = "random_search",
+  task =  tsk("pima"),
+  learner = lrn("classif.rpart"),
+  inner_resampling = rsmp("holdout"),
+  outer_resampling = rsmp("cv", folds = 3),
+  measure = msr("classif.ce"),
+  term_evals = 10,
+  batch_size = 5
+)
+
+# aggregated performance of all outer resampling iterations
+rr$aggregate()
+```
+
+#ImportanceFilter
+```{r}
+library(BBmisc)
+#set cut off
+cut_off <- 0.8
+
+task = task_maxi
+lrn = lrn("regr.ranger")
+lrn$param_set$values = list(importance = "impurity")
+
+filter = flt("importance", learner = lrn)
+filter$calculate(task)
+Impurity <-  as.data.table(filter)  #%>% filter(score >= cut_off)
+#Impurity <-  as.data.table(filter) %>% filter(score >= 80)
+Impurity$score <- normalize(Impurity$score, 
+  method = "range",
+  range = c(0, 1),
+  margin = 1L)
+Impurity <-  Impurity %>% filter(score >= 0.4)
+#impurity.data <- Impurity
+```
+##mimrFilter
+```{r}
+filter = flt("mrmr")
+filter$calculate(task)
+mrmr <- as.data.table(filter) %>% filter(score >= cut_off)%>% print()
+                      
+```
+
+##mimrFilter
+```{r}
+filter = flt("cmim")
+
+filter$calculate(task)
+cmim <- as.data.table(filter) %>% filter(score >= cut_off) %>% print()
+```
+##jmimFilter
+```{r}
+filter = flt("jmim")
+filter$calculate(task_maxi)
+
+jmim <-  as.data.table(filter) %>% filter(score >= cut_off)%>% print()
+                      
+```
+##njmimFilter
+```{r}
+filter = flt("njmim")
+filter$calculate(task_maxi)
+
+njmim <-  as.data.table(filter) %>% filter(score >= cut_off)%>% print()
+                      
+```
+##jmimFilter
+```{r}
+filter = flt("jmi")
+filter$calculate(task_maxi)
+jmi <- as.data.table(filter) %>% filter(score >= cut_off)%>% print()
+
+```
+
+```{r}
+result_df <- cbind(Impurity, mrmr, jmi, njmim, jmim, cmim)
+
+colnames(result_df) <- c("Impurity", "Score", "mrmr","Score","jmi","Score", "njmim", "Score","jmim", "Score", "cmim", "Score")
+
+result_melt_df <- rbind(Impurity, head(mrmr,10), jmi, njmim, jmim, cmim)
+
+table(result_melt_df$feature)
+#task_combined <- select(Age, EQ5_Index, Handgripstrength.dominant.hand, estimated_gz, GFR, Leukocytes , SARC_F.Score, Body.fat.percentage, Erythrozytes)
+```
+
+#frequency Plot 
+```{r}
+library(stringr)
+library(ggpubr)
+library(forcats)
+theme_set(theme_pubr())
+
+result_melt_df$feature <- as.factor(result_melt_df$feature)
+plot_df <- as.data.frame(result_melt_df)
+
+df <- plot_df %>%
+  arrange(desc(feature)) %>% 
+  group_by(feature) %>%
+  summarise(counts = n())
+df
+
+# Create the bar plot. Use theme_pubclean() [in ggpubr]
+ggplot(df, aes(x = fct_infreq(feature), y = counts)) +
+  geom_bar(fill = "#0073C2FF", stat = "identity") +
+  geom_text(aes(label = counts), vjust = -0.3) + 
+  theme_pubclean()
+
+
+df <- df %>%
+  arrange(desc(feature)) %>%
+  mutate(prop = round(counts*100/sum(counts), 1),
+         lab.ypos = cumsum(prop) - 0.5*prop)%>% print()
+```
+
+
+
+```{r}
+#Pie chart
+ggplot(df, aes(x = "", y = prop, fill = feature)) +
+  geom_bar(width = 1, stat = "identity", color = "white") +
+  geom_text(aes(y = lab.ypos, label = prop), color = "white")+
+  coord_polar("y", start = 0)+
+  ggpubr::fill_palette("viridis")+
+  theme_void()
+```
+
+
+```{r}
+#chart
+ggplot(df, aes(feature, prop)) +
+  geom_linerange(
+    aes(x = feature, ymin = 0, ymax = prop), 
+    color = "lightgray", size = 3.5
+    )+
+  geom_point(aes(color = feature), size = 4)+
+  ggpubr::color_palette("viridis")+
+  ylab("proportion")+
+  ggtitle("Frequency of Features during automated selection process")+
+  scale_x_discrete(labels= c("age", "body-mass-index", "body fat percentage", "creatine kinase serum level", "c-reactive protein", "leaving appartment daily", "EQ-5D-Index","red blood cell count", "patient reported health state", "glomerular filtration rate", "handgripstrength dominant side", "handgripstrength non-dominant side", "leukocytes", "myoglobin", "SARC-F Score", "sodium serum level", "platelet count", "25-hydroxyvitamin D serum level", "weekly sport activity", "weight"))+
+  theme_pubclean()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none",
+        panel.border = element_rect(fill = NA),
+        plot.title = element_text(face = "bold"))
+
+ggsave("feature_frequency_removed_240522.pdf", width = 7, height = 5.2)
+```
+
+```{r}
+library(igraph)
+filter = flt("njmim")
+as.data.table(filter$calculate(task_maxi,  nfeat = 10))
+task.data$PreFrailty <- as.factor()
+cmiMatrix(task.data,task.data$TUG_Test.Time)
+t(miMatrix(task.data,task.data$TUG_Test.Time))
+
+identical (diag(irMi), hScores(iris))
+
+graph_from_adjacency_matrix(jmiMatrix(task.data,task.data$TUG_Test.Time, zeroDiag = TRUE), mode='directed', weighted=TRUE)
+
+plot (miScores(task.data,task.data$TUG_Test.Time) , cmiScores (task.data,task.data$TUG_Test.Time, task.data$Handgripstrength.dominant.hand))
+```
+
+```{r}
+# data(MadelonD)
+# JMI (MadelonD$X, MadelonD$Y, k=3)
+# JMI
+# sapply(c("CMI", "MIM", "MRMR","CMIM","JMI", "DISR", "JMIM", "NJMIM"),
+#   function(met){
+#       do.call(met,
+#       list (MadelonD$X, MadelonD$Y, k=20)
+#       )-› ans 
+#     sum(grepl ("Rel", names (ans$score)))
+#   })
+```
+
+#TRY plot
+```{r}
+# miScores(task.data$TUG_Test.Time)
+# plot(miScores(task.data$TUG_Test.Time, task.data$SPPB.Score)) #cmiScores (task.data$TUG_Test.Time, task.data$Age, task.data$Rel7)))
+# 
+# graph_from_adjacency_matrix(miMatrix(iris, task.data$TUG_Test.Time),mode="undirected", weighted=TRUE)
+# 
+# #with(task.data,plot(miScores(X,Y),cmiScores (X, Y. X$Re17))
+# 
+# JMI(task.data$TUG_Test.Time,task.data$Age, k)
+```
+
+
+
+```{r}
+learner_ranger  = lrn("regr.ranger")
+
+cv1_ranger= po("learner_cv", learner_ranger, id = "ranger_1")
+
+level1 = po("pca", id = "pca1", param_vals = list(scale. = TRUE)) %>>% cv1_ranger #%>>% po("featureunion", id = "union1")
+
+train_id = sample(task_reg$row_ids, 74L)
+test_id = setdiff(task_reg$row_ids, train_id)
+#rager_500$train(task_reg, row_ids = train_id)
+
+#Ranger only
+object_train = learner_ranger$train(task_reg, row_ids = train_id)$predict(task_reg)$filter(row_ids = train_id)
+#object_test = learner_ranger$train(task_reg)$predict(task_reg)$filter(row_ids = test_id)
+object_test = learner_ranger$predict(task_reg)$filter(row_ids = test_id)
+p.train <- autoplot(object_train)
+p.test <- autoplot(object_test)
+#autoplot(object, type = "histogram", binwidth = 0.5)
+#autoplot(object, type = "residual")
+
+
+#keras_500 = GraphLearner$new(po("pca", id = "pca1", param_vals = list(scale. = TRUE)) %>>% po("learner_cv", learner_ranger, id = "ranger_1"))
+##Train Leraner
+# step1_out = level1$train(task_sonar)
+# step1_out
+# learner = as_learner(level1)
+# level1$predict(task_sonar)
+# 
+# learner_ensemble = as_learner(level1)
+# learner_ensemble$id = "ensemble"
+# learner_ensemble$predict_type = "prob")
+
+table_train <- cbind(
+as.data.frame(object_train$data$response),
+as.data.frame(object_train$data$truth),
+as.data.frame(object_train$data$row_ids))
+
+table_test <- cbind(
+as.data.frame(object_test$data$response),
+as.data.frame(object_test$data$truth),
+as.data.frame(object_test$data$row_ids))
+
+table_test <- table_test %>% mutate(class ="TEST")
+
+table_train <- table_train %>% mutate(class ="TRAIN")
+colnames(table_train) <- colnames(table_test)
+comparison.df <- rbind(table_train,table_test)
+colnames(comparison.df) <- c("response","truth","id","data")
+rownames(comparison.df) <- comparison.df$id
+comparison.df$response <- as.numeric(comparison.df$response)
+comparison.df$truth <- as.numeric(comparison.df$truth)
+comparison.df$class <- as.factor(comparison.df$data)
+
+
+ggplot(comparison.df,aes(x = truth, y = response, col = data),group_by(data))+
+  geom_abline(intercept = 0, slope = 1, linetype = 'dotted')+
+  geom_point()+
+  #stat_summary(fun.data= mean_cl_normal) + 
+  geom_smooth(method='lm', show.legend = TRUE)+
+  ylim(0,33)+
+  xlim(0,33)+
+  theme_bw()+
+  coord_fixed(ratio = 1, xlim = NULL, ylim = NULL, expand = FALSE, clip = "off")+
+  ggtitle("TUG-regression by test and training data")+
+  ylab("algorithm response [s]")+
+  xlab("true value [s]")+
+ stat_cor(label.x = c(3, 15), label.y = 24, size = 3) +
+  stat_regline_equation(label.x = c(3,15), label.y = c(22), size = 3)+
+  theme(legend.position = "bottom",
+        legend.text = element_blank(),
+        axis.text = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10), 
+        axis.title = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10),
+        panel.grid.minor = element_line(),
+      panel.background = element_blank(),
+        #axis.text.x=element_text(margin = margin(t = 10)),
+      axis.line = element_blank(),
+      axis.ticks = element_line(size = 0.3),
+         panel.border = element_rect(colour = "black", fill=NA, size=.5),
+        #axis.text.x=element_text(margin = margin(t = 20)),
+          plot.title = element_text(size = 13, face = "bold", color = "black", hjust = 0),
+        axis.text.x = element_text(angle = 0, vjust = 0, hjust=0.5),
+        strip.background = element_blank(),
+  strip.text.x = element_blank()
+      )
+
+#ggsave("plot_TUG_Reg_V1.pdf")
+# ggplot(comparison.df,aes(x = "object_test$data$truth", y = "object_test$data$response")) +
+#   geom_point() +
+#   geom_smooth(method='lm') 
+# 
+# 
+# ggplot(comparison.df,aes(x = truth, y = response, col = data),group_by(data))+
+#   geom_abline(intercept = 0, slope = 1, linetype = 'dotted')+
+#   geom_point()+
+#   geom_density_2d()
+```
+```{r}
+p.test+
+  ggtitle("TUG-Regression")+
+  scale_y_continuous(expand = c(0.0005, 0.0005)) + 
+  theme_bw()+
+  ylim(0,40)+
+  xlim(0,40)+
+  theme(legend.position = "none",
+        legend.text = element_blank(),
+        axis.text = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10), 
+        axis.title = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10),
+        panel.grid.minor = element_line(),
+      panel.background = element_blank(),
+        #axis.text.x=element_text(margin = margin(t = 10)),
+      axis.line = element_blank(),
+      axis.ticks = element_line(size = 0.3),
+         panel.border = element_rect(colour = "black", fill=NA, size=.5),
+        #axis.text.x=element_text(margin = margin(t = 20)),
+          plot.title = element_text(size = 14, face = "bold", color = "black", hjust = 0),
+        axis.text.x = element_text(angle = 0, vjust = 0, hjust=0.5),
+        strip.background = element_blank(),
+  strip.text.x = element_blank()
+      )
+library(ggpubr)
+ggarrange(p.train,p.test)
+```
+
+
+```{r}
+level1$plot()
+```
+```{r}
+
+```
+
+
+```{r}
+data.mlr.rem2 <- task.data %>% select(-c(TUG_Test.Time, ))
+task_reg <-TaskRegr$new(id="Predict.Patients.at.Fall.Risk", as_data_backend(data.mlr.rem2), "TUG_Test.Time", extra_args = list())
+# boston_task = tsk("boston_housing")
+paste(
+  "This data set contains", task_reg$nrow, "observations and",
+  task_reg$ncol - 1, "features."
+)
+
+task_reg$select(subset(task_reg$feature_types, type == "numeric")$id)
+task_reg$head(n = 3)
+```
+
+
+```{r}
+po_pca=PipeOpPCA$new()
+po_scale = PipeOpScale$new()
+build_model = function(seed = 123L) {
+  if (seed > 0L)  mlr3keras_set_seeds(seed)
+
+  model = keras_model_sequential() %>%
+      layer_dense(units = 64L, activation = "relu",
+                input_shape = task_reg$ncol - 1L) %>%
+      layer_dense(units = 64L, activation = "relu") %>%
+      layer_dense(units = 1L)
+
+    model %>% compile(
+    loss = "mse",
+    optimizer = optimizer_rmsprop(),
+    metrics = list("mean_absolute_error")
+  )
+
+  model
+}
+
+model = build_model()
+model %>% summary()
+#install.packages("remotes")
+library()
+```
+
+```{r}
+library(keras)
+learner = po("learner", lrn("regr.keras"))
+learner = lrn("regr.keras", id = "nn")
+
+learner$param_set$values$epochs = 500L
+learner$param_set$values$model = build_model()
+learner$param_set$values$validation_split = 0.2
+
+print_dot_callback = callback_lambda(
+  on_epoch_end = function(epoch, logs) {
+    if (epoch %% 80 == 0) cat("\n")
+    cat(".")
+  }
+)
+
+learner$param_set$values$callbacks = list(print_dot_callback)
+# early_stop = callback_early_stopping(monitor = "val_loss", patience = 20) # keras syntax
+early_stop = cb_es(monitor = "val_loss", patience = 50) # mlr3 syntax
+
+keras_500 = GraphLearner$new(po_scale %>>% 
+                               po_pca %>>% 
+                               learner)
+keras_es = keras_500$clone(deep = TRUE)
+```
+
+```{r}
+train_id = sample(task_reg$row_ids, 74L)
+test_id = setdiff(task_reg$row_ids, train_id)
+keras_500$train(task_reg, row_ids = train_id)#
+
+history = keras_500$model$regr.keras$model$history
+plot(history, metrics = "mean_absolute_error", smooth = FALSE) +
+  coord_cartesian(ylim = c(0, 10))
+```
+#train with early stopping
+```{r}
+keras_es$param_set$values$regr.keras.callbacks = list(early_stop, print_dot_callback)
+keras_es$param_set$values$regr.keras.model = build_model()
+keras_es$train(task_reg, row_ids = train_id)
+history = keras_es$model$regr.keras$model$history
+plot(history, metrics = "mean_absolute_error", smooth = FALSE) +
+  coord_cartesian(xlim = c(0, 150), ylim = c(0, 15))
+```
+#predict/evaluate
+```{r}
+predict_boston = keras_es$predict(task_reg, row_ids = test_id)
+head(predict_boston$data$tab, n = 3)
+results <- as.data.frame(c(
+predict_boston$score(msr("regr.mae")),
+predict_boston$score(msr("regr.rse")),
+predict_boston$score(msr("regr.rmse")),
+predict_boston$score(msr("regr.rsq"))
+), col.names = c("measure", "alue"), optional = TRUE) %>% print()
+
+
+autoplot(predict_boston)+
+  ggtitle("Tuned Deep Network")
+```
+
+
+
+
+
+#Random Forest
+```{r}
+data.mlr.rem3 <- mutate_all(task.data, function(x) as.numeric(as.character(x)))
+task_reg <-TaskRegr$new(id="Predict.TUG", as_data_backend(data.mlr.rem3), "TUG_Test.Time", extra_args = list())
+learner = po("learner", lrn("regr.ranger"))
+
+rager_500 = GraphLearner$new(po_scale %>>% 
+                               po_pca %>>% 
+                               learner)
+
+train_id = sample(task_reg$row_ids, 74L)
+test_id = setdiff(task_reg$row_ids, train_id)
+rager_500$train(task_reg, row_ids = train_id)
+
+predict_boston = rager_500$predict(task_reg, row_ids = test_id)
+head(predict_boston$data$tab, n = 3)
+results <- as.data.frame(c(
+predict_boston$score(msr("regr.mae")),
+predict_boston$score(msr("regr.rse")),
+predict_boston$score(msr("regr.rmse")),
+predict_boston$score(msr("regr.rsq"))
+), col.names = c("measure", "value"), optional = TRUE) %>% print()
+
+autoplot(predict_boston)
+autoplot(predict_boston, type = "residual")
+
+
+resampling = rsmp("cv", folds = 3)
+
+rr = resample(task = task_reg, learner = rager_500 , resampling = resampling)
+rr$score( measure = msr("regr.mse"))#[, .(iteration, task_id, learner_id, resampling_id, classif.ce)]
+
+instance = tune(
+  method = "grid_search",
+  task = task_reg,
+  learner = rager_500,
+  resampling = rsmp("cv", folds = 3),
+  measure = msr("regr.mae")
+)
+
+print(instance$archive)
+
+```
+
+
+##For Loop of Comparison
+```{r}
+data.mlr.rem3 <- mutate_all(data.mlr.rem2, function(x) as.numeric(as.character(x)))
+#set task
+task_reg <-TaskRegr$new(id="Predict.TUG.Time", as_data_backend(data.mlr.rem3), "TUG_Test.Time", extra_args = list())
+
+tlist <- c(task_reg)
+#choose learners
+clist <- c("regr.ranger", "regr.xgboost", "regr.svm", "regr.lm")
+data_reg <- data.frame(measures = c("MAE","RSE","RMSE","RSQ"))  # Creating data containing NA
+
+set.seed(1)
+#data_tk<- vector("", 3)
+for (j in tlist) {
+  for (i in clist) {
+  
+learner = po("learner", lrn(i))
+
+rager_500 = GraphLearner$new(po_scale %>>% 
+                               po_pca %>>% 
+                               learner)
+
+train_id = sample(j$row_ids, 74L)
+test_id = setdiff(j$row_ids, train_id)
+rager_500$train(j, row_ids = train_id)
+
+predict_boston = rager_500$predict(j, row_ids = test_id)
+head(predict_boston$data$tab, n = 3)
+results <- c(
+predict_boston$score(msr("regr.mae")),
+predict_boston$score(msr("regr.rse")),
+predict_boston$score(msr("regr.rmse")),
+predict_boston$score(msr("regr.rsq"))
+) #%>% print()
+#colnames(results) <- c( paste(i))
+  data_reg[ , i] <- results    
+  #data_reg<- rbind(data_reg, c(j$id,j$id,j$id,j$id))
+  # Adding new variable to data
+  #colnames(data_reg)[i] <- paste0("Col_", i)  
+  #data_reg[ , j] <- j$id
+  }
+ data_reg <- data_reg  %>%  mutate(algorithm = c(j$id,j$id,j$id,j$id))
+}
+data_reg
+##Try Rbind to cobine DFs
+task_reg$id
+# autoplot(predict_boston)
+# autoplot(predict_boston, type = "residual")
+
+
+# output <- vector("double", ncol(df))  # 1. output
+# for (i in seq_along(df)) {            # 2. sequence
+#   output[[i]] <- median(df[[i]])      # 3. body
+# }
+# output
+```
+```{r}
+
+set.seed(7832)
+lgr::get_logger("mlr3")$set_threshold("warn")
+lgr::get_logger("bbotk")$set_threshold("warn")
+
+tasks = list(
+  task_reg,
+  task_sonar
+)
+#Assemble learners
+learners = list(
+  lrn("regr.ranger", id = "rf"),
+  lrn("regr.xgboost", id = "xgb"),
+  lrn("regr.svm", id = "svm"),
+  lrn( "regr.lm", id = "lm")
+)
+learners_ids = sapply(learners, function(x) x$id)
+
+task = task_reg # some random data for this demo
+inner_cv2 = rsmp("cv", folds = 20) # inner loop for nested CV
+outer_cv5 = rsmp("cv", folds = 10) #outer Tuning
+
+
+grid = benchmark_grid(task, learners, outer_cv5)
+bmr = benchmark(grid)
+bmr$aggregate(measures = msr("regr.mse"))
+```
+#Plot BMR
+```{r}
+bmr$aggregate()[, list(nr, resample_result, task_id, learner_id, regr.mse)] 
+my.box<- mlr3viz::autoplot(bmr, "boxplot", fill = c("#1B9E77", "#D95F02", "#7570B3", "#E7298A"#, "#1B9E77", "#D95F02", "#7570B3", "#E7298A"
+                                                    ))
+my.box+
+  ggtitle("Comparison of Learners for Prediction of TUG (complete dataset)")+
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 100)) + 
+  ylab("mean squared error")+
+  theme_bw()+
+  theme(legend.position= "bottom", 
+        axis.text = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10), 
+        axis.title = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10),
+        panel.grid.minor = element_line(),
+      panel.background = element_blank(),
+        #axis.text.x=element_text(margin = margin(t = 10)),
+      axis.line = element_blank(),
+      axis.ticks = element_line(size = 0.3),
+         panel.border = element_rect(colour = "black", fill=NA, size=.5),
+        #axis.text.x=element_text(margin = margin(t = 20)),
+          plot.title = element_text(size = 14, face = "bold", color = "black", hjust = 0),
+        axis.text.x = element_text(angle = 0, vjust = 0, hjust=0.5),
+        strip.background = element_blank(),
+  strip.text.x = element_text(size = 10, face = "bold", color = "black", hjust = 0.5)
+      )
+
+#ggsave("bmr_boxplot_complete_data_2.pdf")
+```
+
+```{r}
+#PCA
+po_pca=PipeOpPCA$new()
+#set Number of PCs used
+po_pca$param_set$values$rank. = 5
+po_pca$id = "pca"
+#?PipeOpPCA
+#Construct Graph
+graph =
+  #po_pca %>>% 
+  po("branch", options = learners_ids) %>>%
+  gunion(lapply(learners, po)) %>>%
+  po("unbranch")
+graph$plot()
+
+graph_learner = as_learner(graph)
+graph_learner$id = "g"
+graph_learner$param_set$values$branch.selection = to_tune(levels = c("rf", "xgb", "svm"))
+#inner tuning
+instance = tune(
+  method = "grid_search",
+  task = task,
+  learner = graph_learner,
+  resampling = inner_cv2,
+  measure = msr("regr.mse"))
+
+as.data.table(instance$archive)
+
+at = auto_tuner(
+  method = "grid_search",
+  learner = graph_learner,
+  resampling = inner_cv2,
+  measure = msr("regr.mse"),
+)
+
+rr = resample(task, at, outer_cv5, store_models = TRUE)
+
+
+# grid2 = benchmark_grid(task, graph_learner, outer_cv5)
+# bmr2 = benchmark(grid2)
+# bmr2$aggregate(measures = msr("regr.mse"))
+# my.box2<- mlr3viz::autoplot(bmr, "boxplot")
+
+
+extract_inner_tuning_results(rr)
+                            
+#Set tuning Params
+search_space = ps(
+  #pca.rank. = p_int(1L, 40L),
+  branch.selection = p_fct(c("rf", "xgb", "svm")),
+  rf.mtry = p_int(1L, 20L, depends = branch.selection == "rf"), 
+  rf.num.trees = p_int(10L, 1500L, depends = branch.selection == "rf"),
+  #rf.max_depth = p_int(1, 15, depends = branch.selection == "rf"),
+  xgb.nrounds = p_int(1, 500, depends = branch.selection == "xgb"),
+  xgb.max_depth = p_int(1, 15, depends = branch.selection == "xgb")
+  #svm.cost = p_dbl(1e-5, 1e5, logscale = TRUE, depends = branch.selection == "svm"),
+  #svm.gamma = p_dbl(1e-5, 1e5, logscale = TRUE, depends = branch.selection == "svm")
+  #svm.kernel = c("polynomial", "radial", depends = branch.selection == "svm"),
+  #svm.degree = c(1, 4, depends = branch.selection == "svm")
+ )
+#Create Graph learner
+graph_learner = as_learner(graph)
+graph_learner$id = "g"
+
+instance = tune(
+  method = "grid_search",
+  task = task,
+  learner = graph_learner,
+  resampling = inner_cv2,
+  measure = msr("regr.mse"),
+  search_space = search_space,
+  term_evals = 18
+)
+
+as.data.table(instance$archive)
+
+autoplot(instance, cols_x = c("xgb.nrounds","rf.mtry", "rf.num.trees"))
+#mse_pca <- autoplot(instance, cols_x = c("pca.rank."),  size = 4)
+?autoplot
+
+autoplot(instance, cols_x = c("pca.rank."), type = "marginal", ggtitle = "PCA (optimal Number")
+mse_pca +# scale_y_continuous(expand = c(0,0), limits = c(0,30)) + 
+  #ylab("mean squared error")+
+  theme_bw()
+
+
+rr = tune_nested(
+  method = "grid_search",
+  task = task,
+  learner = graph_learner,
+  inner_resampling = inner_cv2,
+  outer_resampling = outer_cv5,
+  measure = msr("regr.mse"),
+  search_space = search_space,
+  term_evals = integer(3)
+  )
+
+extract_inner_tuning_results(rr)
+
+```
+#Set CV
+```{r}
+set.seed(7832)
+lgr::get_logger("mlr3")$set_threshold("warn")
+lgr::get_logger("bbotk")$set_threshold("warn")
+
+inner_cv2 = rsmp("cv", folds = 3) # inner loop for nested CV
+outer_cv5 = rsmp("cv", folds = 5) #outer Tuning
+outer_cv10 = rsmp("cv", folds = 10)
+```
+
+#Create Tasks 1
+```{r}
+#Expertop
+task_expert_choose <-TaskRegr$new(id="TUG.expertop", as_data_backend(data.exp.op), "TUG_Test.Time", extra_args = list())
+#Task Complete
+task_total <-TaskRegr$new(id="TUG.complete", as_data_backend(data.mlr.reduced.reg), "TUG_Test.Time", extra_args = list())
+#lab only
+task_lab_values <-TaskRegr$new(id="TUG.Labvalues", as_data_backend(data.mlr.reduced.reg %>% select(TUG_Test.Time,Sodium,Potassium,Glucose,GFR,Calcium, Calcium.corr.,Phosphate, C.reactive.protein,Total.protein,Gamma.gluteryl.transferase,alkaline.phosphate,Leukocytes,Erythrozytes,Haemoglobin,Haematokrite,MCV,MCH,MCH,Thrombozytes,TSH, Parathormon, Vitamin.D3, LDH, Creatine.Kinase, Creatinine,Myoglobin,Bone.mineral.density.femoral.neck,Bone.mineral.density.L1)), "TUG_Test.Time", extra_args = list())
+#data.mlr.rem3
+#Demographics
+task_demographic <-TaskRegr$new(id="TUG.Demographics", as_data_backend(data.mlr.reduced.reg %>% select(TUG_Test.Time, Age, Weight, Height, BMI, smoking,Body.fat.percentage, visceral.fat.percentage, Muscle.percentage,)), "TUG_Test.Time", extra_args = list())
+#Geriatric Assessment
+task_assessment <-TaskRegr$new(id="TUG.assessment", as_data_backend(data.mlr.reduced.reg %>% select(TUG_Test.Time,  SARC_F.Score, EQ5_Index,past_falls, Schwindelig, Stolpern, age_menopause, estimated_gz, daily_leaving_appartment,weekly_sports, self_sustaining, Fracture_WK, Fracture_HG, Handgripstrength.dominant.hand, Handgripstrength.non.dominant.hand
+)), "TUG_Test.Time", extra_args = list())
+
+#Labvalue + Demographic
+task_demo_lab<-TaskRegr$new(id="TUG.Demographics.and.Lab", as_data_backend(data.mlr.reduced.reg %>% select(TUG_Test.Time, Age, Weight, Height, BMI, smoking,Body.fat.percentage, visceral.fat.percentage, Muscle.percentage,Potassium,Glucose,GFR,Calcium, Calcium.corr.,Phosphate, C.reactive.protein,Total.protein,Gamma.gluteryl.transferase,alkaline.phosphate,Leukocytes,Erythrozytes,Haemoglobin,Haematokrite,MCV,MCH,MCH,Thrombozytes,TSH, Parathormon, Vitamin.D3, LDH, Creatine.Kinase, Creatinine,Myoglobin,Bone.mineral.density.femoral.neck,Bone.mineral.density.L1)), "TUG_Test.Time", extra_args = list())
+
+```
+
+#Create Tasks Regression
+```{r}
+#impurity
+task.data$TUG_Test.Time <- as.numeric(task.data$TUG_Test.Time)
+impurity.data <- task.data %>% select(as.vector(result_df$Impurity),TUG_Test.Time)
+task_impurity <- TaskRegr$new(id="impurity", as_data_backend(impurity.data),"TUG_Test.Time", extra_args = list())
+jmi.data<- task.data %>% select(as.vector(result_df$jmi),TUG_Test.Time)
+#jmi
+task_jmi <- TaskRegr$new(id="jmi", as_data_backend(jmi.data),"TUG_Test.Time", extra_args = list())
+#mrm
+mrmr.data<- task.data %>% select(as.vector(result_df$mrmr),TUG_Test.Time)
+task_mrmr <- TaskRegr$new(id="mrmr", as_data_backend(mrmr.data),"TUG_Test.Time", extra_args = list())
+#cmim
+cmim.data<- task.data %>% select(as.vector(result_df$cmim),TUG_Test.Time)
+task_cmim <- TaskRegr$new(id="cmim", as_data_backend(cmim.data),"TUG_Test.Time", extra_args = list())
+#cmim
+jmim.data<- task.data %>% select(as.vector(result_df$jmim),TUG_Test.Time)
+task_jmim <- TaskRegr$new(id="jmim", as_data_backend(jmim.data),"TUG_Test.Time", extra_args = list())
+#cmim
+njmim.data<- task.data %>% select(as.vector(result_df$njmim),TUG_Test.Time)
+task_njmim <- TaskRegr$new(id="njmim", as_data_backend(njmim.data),"TUG_Test.Time", extra_args = list())
+#combined
+combined.data<- task.data %>% select(Age, EQ5_Index, Handgripstrength.dominant.hand, estimated_gz, GFR, Leukocytes , SARC_F.Score, Body.fat.percentage, Erythrozytes,TUG_Test.Time)
+task_combined <- TaskRegr$new(id="combined", as_data_backend(combined.data),"TUG_Test.Time", extra_args = list())
+#data.mlr.rem3
+```
+#create environment
+
+```{r}
+# reticulate::conda_create(
+#   envname = "mlr3keras",
+#   packages = c("pandas", "python=3.8")
+# )
+# keras::install_keras("conda", tensorflow="2.3.1", envname="mlr3keras")#
+# reticulate::use_condaenv("mlr3keras")
+# library(mlr3keras)
+```
+
+
+#Create Learners
+```{r}
+learners = list(
+  lrn("regr.ranger", id = "rf"),
+  lrn("regr.xgboost", id = "xgb"),
+  lrn("regr.svm", id = "svm"),
+  lrn( "regr.lm", id = "lm")
+  #lrn("regr.keras", id = "nn")
+)
+learners_ids = sapply(learners, function(x) x$id)
+#Task List
+tasks = list(task_impurity,
+             task_jmi,
+             task_jmim,
+             task_mrmr,
+             task_cmim,
+             task_njmim
+            )
+```
+#Create Learners
+```{r}
+learners = list(
+  lrn("regr.ranger", id = "rf"),
+  lrn("regr.xgboost", id = "xgb"),
+  lrn("regr.svm", id = "svm"),
+  lrn( "regr.lm", id = "lm")
+  #lrn( "regr.keras", id = "nn")
+)
+learners_ids = sapply(learners, function(x) x$id)
+#Task List
+#tasks = list(task_total,
+             # task_lab_values,
+             # task_demographic, 
+             # task_assessment,
+             # task_expert_choose,
+             # task_demo_lab)
+```
+
+#Create Pipes
+```{r}
+po_pca=PipeOpPCA$new()
+#set Number of PCs used
+po_pca$param_set$values$rank. = 9
+#?PipeOpPCA
+#Construct Graph
+po.rf =
+  po_pca %>>% 
+ lrn("regr.ranger", id = "rf")
+graph_learner = as_learner(po.rf)
+
+```
+#tune Pipes
+```{r}
+task = task_total
+graph_learner$id = "po.rf"
+search_space.rf = ps(
+   branch.selection = p_fct(c("rf")),
+  rf.mtry = p_int(1L, 20L, depends = branch.selection == "rf"), 
+  rf.num.trees = p_int(10L, depends = branch.selection == "rf")
+  )
+
+instance = tune(
+  method = "grid_search",
+  task = task_mrmr,
+  learner = graph_learner,
+  resampling = inner_cv2,
+  measure = msr("regr.mse"),
+  search_space = search_space.rf,
+  term_evals = 18
+)
+
+as.data.table(instance$archive)
+
+autoplot(instance, cols_x = c("xgb.nrounds","rf.mtry", "rf.num.trees"))
+#mse_pca <- autoplot(instance, cols_x = c("pca.rank."),  size = 4)
+?autoplot
+
+autoplot(instance, cols_x = c("rf.num.trees"), type = "marginal", ggtitle = "PCA (optimal Number")
+mse_pca +# scale_y_continuous(expand = c(0,0), limits = c(0,30)) + 
+  #ylab("mean squared error")+
+  theme_bw()
+
+
+rr = tune_nested(
+  method = "grid_search",
+  task = task,
+  learner = graph_learner,
+  inner_resampling = inner_cv2,
+  outer_resampling = outer_cv5,
+  measure = msr("regr.mse"),
+  search_space = search_space,
+  term_evals = 1
+  )
+
+extract_inner_tuning_results(rr)
+```
+#Resample over all Pipes
+```{r}
+
+set.seed(6)
+#learners list
+learners = list(
+  lrn("regr.ranger", id = "rf"),
+  lrn("regr.svm", id = "svm"),
+  lrn("regr.glmnet", id = "glm"),
+  lrn( "regr.xgboost", id = "xgb")
+  # lrn( "regr.keras", id = "nn")
+  #graph_learner 
+)
+learners_ids = sapply(learners, function(x) x$id)
+
+grid = benchmark_grid(tasks, 
+                      learners, 
+                      outer_cv10)
+bmr = benchmark(grid)
+
+#bmr grid by train and test error. Plot the two in one Graph would be awesome!!!
+design = benchmark_grid(
+  tasks = tasks,
+  learners = lrns(c("regr.ranger","regr.svm", "regr.glmnet", "regr.xgboost"),
+  predict_sets = c("train", "test")),
+  resamplings = rsmps("cv", folds = 5)
+)
+bmr = benchmark(design)
+measures = list(
+  msr("regr.mse", predict_sets = "train", id = "mse_train"),
+  msr("regr.mse", predict_sets = "test", id = "mse_test"),
+  msr("regr.rmse", predict_sets = "train", id = "rmse_train"),
+  msr("regr.rmse", predict_sets = "test", id = "rmse_test"),
+  msr("regr.mae", predict_sets = "train", id = "mae_train"),
+  msr("regr.mae", predict_sets = "test", id = "mae_test")
+) 
+
+tab_5 = bmr$aggregate(measures) %>% arrange(mse_test) %>% select(task_id, learner_id,mse_train,mse_test, rmse_train, rmse_test, mae_train,mae_test)%>% print
+#tab_10 = bmr$aggregate(measures) %>% arrange(mse_test) %>% select(task_id, learner_id,mse_train,mse_test, rmse_train, rmse_test, mae_train,mae_test)%>% print
+```
+
+#tune best performing kombination
+```{r}
+
+
+library(paradox)
+learner$param_set
+rpart_tuned = lrn("regr.ranger", predict_sets = c("train", "test"))
+rpart_tuned$param_set$values$mtry = to_tune(p_int(1, 9))
+rpart_tuned$param_set$values$max.depth = to_tune(p_int(1, 15))
+#learner$param_set$values$kernel = to_tune(c("polynomial", "radial"))
+rpart_tuned$param_set$values$num.trees = to_tune(p_int(150, 1000))
+
+ranger_tuned = tune_nested(
+  method = "grid_search",
+  task = task_impurity,
+  learner = rpart_tuned, 
+  inner_resampling = rsmp ("cv", folds = 3),
+  outer_resampling = rsmp("cv", folds = 3), 
+  measure = msr("regr.mse"),
+  resolution = 5 #Chang on Workstation
+)
+ranger_tuned
+autoplot(ranger_tuned)
+
+ranger_tuned_mrmr = tune_nested(
+  method = "grid_search",
+  task = task_mrmr,
+  learner = rpart_tuned, 
+  inner_resampling = rsmp ("cv", folds = 3),
+  outer_resampling = rsmp("cv", folds = 3), 
+  measure = msr("regr.mse"),
+  resolution = 5 #Chang on Workstation
+)
+autoplot(ranger_tuned_mrmr)
+
+learner = lrn("regr.svm", type = "eps-regression", predict_sets = c("train", "test"))
+learner$param_set$values$cost = to_tune(p_dbl(1e-5, 1e5, logscale = TRUE))
+learner$param_set$values$gamma = to_tune(p_dbl(1e-5, 1e5, logscale = TRUE))
+learner$param_set$values$kernel = to_tune(c("polynomial", "radial"))
+learner$param_set$values$degree = to_tune(1, 4)
+
+
+
+instance = tune_nested(
+  method = "grid_search",
+  task = task_impurity,
+  learner = learner,
+  inner_resampling = rsmp ("cv", folds = 3),
+  outer_resampling = rsmp("cv", folds = 3), 
+  measure = msr("regr.mse"),
+  resolution = 3 #Chang on Workstation
+)
+#tuned_rf <- autoplot(ranger_tuned,, predict_sets = "test", id = "mae_test")
+
+design2 = benchmark_grid(
+  tasks = task_impurity,
+    learners = ranger_tuned,
+    resamplings = rsmps("cv", folds = 5)
+)
+
+```
+
+
+```{r}
+print(tab_5)
+score.data <- bmr$score(measures = list(
+  msr("regr.mse", predict_sets = "train", id = "mse_train"),
+  msr("regr.mse", predict_sets = "test", id = "mse_test")
+))
+
+bmr
+# group by levels of task_id, return columns:
+# - learner_id
+# - rank of col '-auc_train' (per level of learner_id)
+# - rank of col '-auc_test' (per level of learner_id)
+ranks = tab_5[, .(learner_id, rank_train = rank(-mse_train), rank_test = rank(-mse_test)), by = task_id]
+print(ranks)
+
+
+```
+
+
+```{r}
+mse <- bmr$aggregate(measures = msr("regr.mse"))
+rmse <- bmr$aggregate(measures = msr("regr.rmse"))
+mae <- bmr$aggregate(measures = msr("regr.mae"))
+result_table <- cbind(mse, rmse = rmse$regr.rmse, mae = mae$regr.mae)
+
+#unbedingt regr.mspe, regr.rmspe und regr.mape ergänzen
+bmr$aggregate()[, list(nr, resample_result, task_id, learner_id, regr.mse)] 
+
+#TRaining Data 
+r.train <- bmr$aggregate(measures)[, list(nr, resample_result, task_id, learner_id, mse_train)] 
+library("scales")
+library(ggsci)
+p1 <- ggplot(score.data, aes(x=learner_id, y=mse_train)) + 
+  facet_wrap(. ~ task_id) +
+  geom_boxplot( fill = c("#BC3C29FF", "#0072B5FF", "#E18727FF", "#20854EFF","#BC3C29FF", "#0072B5FF", "#E18727FF", "#20854EFF","#BC3C29FF", "#0072B5FF", "#E18727FF", "#20854EFF","#BC3C29FF", "#0072B5FF", "#E18727FF", "#20854EFF","#BC3C29FF", "#0072B5FF", "#E18727FF", "#20854EFF","#BC3C29FF", "#0072B5FF", "#E18727FF", "#20854EFF"))+
+  ggtitle("MSE of Training Data")+
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 100)) + 
+  ylab("mean squared error")+
+  xlab("machine learning algorithm")+
+  scale_x_discrete(labels= c("glm", "random forest", "svm", "xgboost"))+
+  stat_summary(fun.y="mean", color="black", fill = "white", shape=23, size = 0.35)+
+  theme_bw()+
+  theme(legend.position= "bottom", 
+        axis.text = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10), 
+        axis.title = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10),
+        panel.grid.minor = element_line(),
+      panel.background = element_blank(),
+        #axis.text.x=element_text(margin = margin(t = 10)),
+      axis.line = element_blank(),
+      axis.ticks = element_line(size = 0.3),
+         panel.border = element_rect(colour = "black", fill=NA, size=.5),
+        #axis.text.x=element_text(margin = margin(t = 20)),
+          plot.title = element_text(size = 15, face = "bold", color = "black", hjust = 0),
+        axis.text.x = element_text(size = 6, angle = 0, vjust = 0, hjust=0.5),
+        strip.background = element_blank(),
+  strip.text.x = element_text(size = 10, face = "bold", color = "black", hjust = 0.5)
+      )
+
+p2 <- ggplot(score.data, aes(x=learner_id, y=mse_test)) + 
+  facet_wrap(. ~ task_id) +
+  geom_boxplot( fill = c("#BC3C29FF", "#0072B5FF", "#E18727FF", "#20854EFF","#BC3C29FF", "#0072B5FF", "#E18727FF", "#20854EFF","#BC3C29FF", "#0072B5FF", "#E18727FF", "#20854EFF","#BC3C29FF", "#0072B5FF", "#E18727FF", "#20854EFF","#BC3C29FF", "#0072B5FF", "#E18727FF", "#20854EFF","#BC3C29FF", "#0072B5FF", "#E18727FF", "#20854EFF"))+
+  ggtitle("MSE of Validation Data")+
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 100)) + 
+  ylab("mean squared error")+
+  xlab("machine learning algorithm")+
+  scale_x_discrete(labels= c("glm", "random forest", "svm", "xgboost"))+
+  theme_bw()+
+  stat_summary(fun.y="mean", color="black", fill = "white", shape=23, size = 0.35)+
+  theme(legend.position= "bottom", 
+        axis.text = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10), 
+        axis.title = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10),
+        panel.grid.minor = element_line(),
+      panel.background = element_blank(),
+        #axis.text.x=element_text(margin = margin(t = 10)),
+      axis.line = element_blank(),
+      axis.ticks = element_line(size = 0.3),
+         panel.border = element_rect(colour = "black", fill=NA, size=.5),
+        #axis.text.x=element_text(margin = margin(t = 20)),
+          plot.title = element_text(size = 15, face = "bold", color = "black", hjust = 0),
+        axis.text.x = element_text(size = 6, angle = 0, vjust = 0, hjust=0.5),
+        strip.background = element_blank(),
+  strip.text.x = element_text(size = 8, face = "bold", color = "black", hjust = 0.5)
+      )
+
+# show_col(pal_nejm("default")(4))
+# pal_nejm(palette = c("default"), alpha = 1)
+# my.box_train<- mlr3viz::autoplot(bmr, "boxplot" ,
+#                            fill = c("#BC3C29FF", "#0072B5FF", "#E18727FF", "#20854EFF","#BC3C29FF", "#0072B5FF", "#E18727FF", "#20854EFF","#BC3C29FF", "#0072B5FF", "#E18727FF", "#20854EFF","#BC3C29FF", "#0072B5FF", "#E18727FF", "#20854EFF","#BC3C29FF", "#0072B5FF", "#E18727FF", "#20854EFF","#BC3C29FF", "#0072B5FF", "#E18727FF", "#20854EFF")
+#                            )
+# my.box_train +
+#   ggtitle("MSE of Validation Data")+
+#   scale_y_continuous(expand = c(0, 0), limits = c(0, 50)) + 
+#   ylab("mean squared error")+
+#   theme_bw()+
+#   theme(legend.position= "bottom", 
+#         axis.text = element_text(face = "bold", 
+#                                  color = "black", 
+#                                  size = 10), 
+#         axis.title = element_text(face = "bold", 
+#                                  color = "black", 
+#                                  size = 10),
+#         panel.grid.minor = element_line(),
+#       panel.background = element_blank(),
+#         #axis.text.x=element_text(margin = margin(t = 10)),
+#       axis.line = element_blank(),
+#       axis.ticks = element_line(size = 0.3),
+#          panel.border = element_rect(colour = "black", fill=NA, size=.5),
+#         #axis.text.x=element_text(margin = margin(t = 20)),
+#           plot.title = element_text(size = 14, face = "bold", color = "black", hjust = 0),
+#         axis.text.x = element_text(angle = 0, vjust = 0, hjust=0.5),
+#         strip.background = element_blank(),
+#   strip.text.x = element_text(size = 10, face = "bold", color = "black", hjust = 0.5)
+#       )
+
+plot<- ggarrange(p1,p2, ncol=2, nrow=1, common.legend = TRUE,legend="bottom")
+
+annotate_figure(plot, top = text_grob("Comparison of Learners for Prediction of TUG-Time", 
+               color = "black", face = "bold", size = 19))
+
+ggsave("Training_testing_MSE_V240522_xgb.pdf", width = 12, height = 7)
+```
+
+
+```{r}
+#Validation Data
+bmr$aggregate(measures)[, list(nr, resample_result, task_id, learner_id, mse_test)] 
+library("scales")
+library(ggsci)
+show_col(pal_nejm("default")(4))
+pal_nejm(palette = c("default"), alpha = 1)
+my.box<- mlr3viz::autoplot(bmr, "boxplot" ,
+                           fill = c("#BC3C29FF", "#0072B5FF", "#E18727FF", "#20854EFF","#BC3C29FF", "#0072B5FF", "#E18727FF", "#20854EFF","#BC3C29FF", "#0072B5FF", "#E18727FF", "#20854EFF","#BC3C29FF", "#0072B5FF", "#E18727FF", "#20854EFF","#BC3C29FF", "#0072B5FF", "#E18727FF", "#20854EFF","#BC3C29FF", "#0072B5FF", "#E18727FF", "#20854EFF")
+                           )
+my.box+
+  ggtitle("Comparison of Learners for Prediction of TUG-Time")+
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 50)) + 
+  ylab("mean squared error")+
+  theme_bw()+
+  theme(legend.position= "bottom", 
+        axis.text = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10), 
+        axis.title = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10),
+        panel.grid.minor = element_line(),
+      panel.background = element_blank(),
+        #axis.text.x=element_text(margin = margin(t = 10)),
+      axis.line = element_blank(),
+      axis.ticks = element_line(size = 0.3),
+         panel.border = element_rect(colour = "black", fill=NA, size=.5),
+        #axis.text.x=element_text(margin = margin(t = 20)),
+          plot.title = element_text(size = 14, face = "bold", color = "black", hjust = 0),
+        axis.text.x = element_text(angle = 0, vjust = 0, hjust=0.5),
+        strip.background = element_blank(),
+  strip.text.x = element_text(size = 10, face = "bold", color = "black", hjust = 0.5)
+      )
+
+ggsave("bmr_boxplot_overview.pdf", height = 7, width = 11)
+```
+```{r}
+
+```
+
+#tasble summary of errors
+```{r}
+tblresult_table 
+
+
+table1s <-
+as.data.frame(result_table) %>% 
+  dplyr::select(-resample_result, -resampling_id, -nr, -iters) %>% arrange(regr.mse)
+
+table1s
+write.csv(table1s, file = "Comparison_prediction_errors_V2.csv")
+```
+
+
+#DescriptiveStats Resampling Results
+```{r}
+bmr.score <- score.data#as.data.frame(bmr$score())
+
+bmr.score.only <- bmr.score %>% select(learner_id, task_id, mse_train) %>%  filter(learner_id == "regr.ranger")
+bmr.score.only <- bmr.score[,c(,11)] 
+
+bmr.score.only$task_id <- as.factor(bmr.score.only$task_id)
+bmr.score.only$learner_id <- as.factor(bmr.score.only$learner_id)
+
+
+imp.df.stat <- bmr.score %>%
+                        group_by(task_id, learner_id) %>%
+                        select(mse_train) %>% 
+                        get_summary_stats(type = "common") %>%
+                        arrange(variable) %>%
+                        print
+```
+#
+```{r}
+compare.data <- bmr.score.only
+#com29pare.data$PreFrailty <- as.numeric(compare.data$PreFrailty)
+nums <- compare.data #%>% dplyr::select(where(is.numeric))
+mydata.long <- nums %>%
+  pivot_longer(-task_id, names_to = "variables", values_to = "value")
+stat.test <- compare.data %>%
+  #group_by(variables) %>%
+  wilcox_test(mse_train ~ task_id) %>%
+  adjust_pvalue(method = "BH") %>%
+  add_significance()%>% arrange(p) %>% 
+  print()
+mydata.long <- nums %>%
+  pivot_longer(-learner_id, names_to = "variables", values_to = "value")
+learner.test <- compare.data %>%
+  #group_by(variables) %>%
+  wilcox_test(mse_train ~ learner_id) %>%
+  adjust_pvalue(method = "BH") %>%
+  add_significance()%>% arrange(p) %>% 
+  print()
+
+
+circadianAnova <- lm(mse_train ~ task_id, data = bmr.score.only)
+anova(circadianAnova)
+
+
+library(multcomp)
+circadianTukey <- glht(circadianAnova, linfct = mcp(task_id = "Tukey"))
+summary(circadianTukey)
+
+res.aov <- aov(mse_train ~ task_id, data = bmr.score.only)
+
+
+kruskal.test(mse_train ~ task_id, data = bmr.score.only)
+
+
+model.tables(res.aov, type="means", se = TRUE)
+
+TukeyHSD(res.aov, which = "task_id")
+```
+```{r}
+
+# bmr.score <- as.data.frame(bmr$score())
+# 
+# bmr.score.only <- bmr.score %>% filter(task_id == "impurity") %>% select(learner_id, regr.mse)
+# bmr.score.only <- bmr.score[,c(4,11)] 
+# 
+# bmr.score.only$learner_id <- as.factor(bmr.score.only$learner_id)
+# 
+# imp.df.stat <- bmr.score.only %>%
+#                         group_by(learner_id) %>%
+#                         get_summary_stats(type = "common") %>%
+#                         arrange(variable) %>%
+#                         print
+# compare.data <- bmr.score.only
+# #com29pare.data$PreFrailty <- as.numeric(compare.data$PreFrailty)
+# nums <- compare.data #%>% dplyr::select(where(is.numeric))
+# mydata.long <- nums %>%
+#   pivot_longer(-task_id, names_to = "variables", values_to = "value")
+# stat.test <- compare.data %>%
+#   #group_by(variables) %>%
+#   wilcox_test(regr.mse ~ task_id) %>%
+#   adjust_pvalue(method = "BH") %>%
+#   add_significance()%>% arrange(p) %>% 
+#   print()
+
+```
+
+
+#resoidual plot
+```{r}
+tasks2 = c(task_impurity,
+             task_jmi,
+             task_jmim,
+             task_mrmr,
+             task_cmim,
+             task_njmim)
+
+# Loop over list of y to create different plots
+outPlots<- list()
+#store = data.frame()
+data <- data.frame(truth = task.data$TUG_Test.Time)
+
+for (i in tasks2) {
+  for (j in learners) {
+  task = i
+  learner = j
+  object = learner$train(task)$predict(task)
+  #store[,i] = rbind(resp = as.data.frame(object$response))
+  new <- as.data.frame(object$response)                      # Create new column
+  data[ , ncol(data) + 1] <- new                  # Append new column
+  colnames(data)[ncol(data)] <- "response"  # Rename column name
+  new2 <- rep(j$id, nrow(data)) 
+  data[ , ncol(data) + 1] <- new2 
+  colnames(data)[ncol(data)] <- "learner"
+  new3 <- rep(i$id, nrow(data)) 
+  data[ , ncol(data) + 1] <- new3 
+  colnames(data)[ncol(data)] <- "task"
+  #my.plot<- autoplot(object, type = "residual") %>% print()
+  # print(plot)
+  #outPlots <- append(outPlots, my.plot)
+  }
+
+}
+
+#colnames(data)
+colnames(data) <- gsub("(.*)[0-9,.]+?", "\\1",colnames(data))
+
+plot.data <- rbind(data[,1:4], data[,c(1,5:7)],
+      data[,c(1,8:10)], 
+      data[,c(1,11:13)],
+      data[,c(1,14:16)],
+      data[,c(1,17:19)],
+      data[,c(1,20:22)],
+      data[,c(1,23:25)],
+      data[,c(1,26:28)],
+      data[,c(1,29:31)],
+      data[,c(1,32:34)],
+      data[,c(1,35:37)],
+      data[,c(1,38:40)],
+      data[,c(1,41:43)],
+      data[,c(1,44:46)],
+      data[,c(1,47:49)],
+      data[,c(1,50:52)],
+      data[,c(1,53:55)],
+      data[,c(1,56:58)],
+      data[,c(1,59:61)],
+      data[,c(1,62:64)],
+      data[,c(1,65:67)],
+      data[,c(1,68:70)],
+      data[,c(1,71:73)])
+
+# melt.data <- melt(data, truth ~ variable, id=c("truth"))
+# cast(melt.data, truth ~ variable)
+# #Daten zu allen 100 patienten
+# outPlots 
+# outPlots
+```
+
+#regression grid
+```{r}
+bp <- ggplot(plot.data, aes(x=truth, y= response, group=learner)) + 
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed", size = 0.3) +
+  geom_smooth(method='lm', color = "grey")+
+  geom_point(aes(color=task,shape = learner), size = 0.8)+
+  facet_grid(learner ~ task)+
+  coord_fixed(ratio = 1, xlim = NULL, ylim = NULL, expand = TRUE, clip = "on")+
+  ggtitle("Correlation of truth-response for TUG-Regression")+
+  ylim(0,30)+
+  xlim(0,30)+
+  theme_bw()+
+theme(legend.position = "none", 
+      axis.text = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 7), 
+        axis.title = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10),
+        panel.grid.minor = element_line(),
+      panel.background = element_blank(),
+        #axis.text.x=element_text(margin = margin(t = 10)),
+      axis.line = element_blank(),
+      axis.ticks = element_line(size = 0.3),
+         panel.border = element_rect(colour = "black", fill=NA, size=.5),
+        #axis.text.x=element_text(margin = margin(t = 20)),
+          plot.title = element_text(size = 14, face = "bold", color = "black", hjust = 0),
+        axis.text.x = element_text(angle = 0, vjust = 0, hjust=0.5),
+        strip.background = element_blank(),
+  strip.text.x = element_text(size = 7, face = "bold", color = "black", hjust = 0.5))
+  
+bp
+
+#ggsave("correlation_response_regression:removed.pdf", width = 8, height = 8)
+
+```
+#residual grid
+```{r}
+
+plot.data2 <- plot.data %>% mutate(residual = truth -response)
+rp <- ggplot(plot.data2, aes(x=truth, y= residual)) +
+  geom_abline(intercept = 0, slope = 0, color = "red", linetype = "dashed", size = 0.3) +
+  geom_abline(intercept = 10, slope = 0, color = "red", linetype = "dotted", size = 0.3) +
+  geom_abline(intercept = -10, slope = 0, color = "red", linetype = "dotted", size = 0.3) +
+  geom_smooth(method='lm', color = "grey")+
+  geom_point(aes(color=task,shape = learner), size = 0.8)+
+  facet_grid(learner ~ task)+
+  coord_fixed(ratio = 1, xlim = NULL, ylim = NULL, expand = TRUE, clip = "on")+
+  ggtitle("Residual of truth-response for TUG-Regression")+
+  ylim(-21,21)+
+  xlim(0,30)+
+  theme_bw()+
+theme(legend.position = "none", 
+      axis.text = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 7), 
+        axis.title = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10),
+        panel.grid.minor = element_line(),
+      panel.background = element_blank(),
+        #axis.text.x=element_text(margin = margin(t = 10)),
+      axis.line = element_blank(),
+      axis.ticks = element_line(size = 0.3),
+         panel.border = element_rect(colour = "black", fill=NA, size=.5),
+        #axis.text.x=element_text(margin = margin(t = 20)),
+          plot.title = element_text(size = 14, face = "bold", color = "black", hjust = 0),
+        axis.text.x = element_text(angle = 0, vjust = 0, hjust=0.5),
+        strip.background = element_blank(),
+  strip.text.x = element_text(size = 7, face = "bold", color = "black", hjust = 0.5))
+rp
+
+ggsave("residual_response_regression.pdf", width = 8, height = 8)
+
+
+ggarrange(bp,rp)
+
+#ggsave("combined_residuals_removed.pdf", width = 12, height = 6)
+```
+#second regression grid
+```{r}
+bp <- ggplot(plot.data %>% filter(learner == "rf"), aes(x=truth, y= response, group=task)) + 
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed", size = 0.3) +
+  geom_smooth(aes(color=task),method='lm', se = FALSE)+
+  geom_point(aes(color=task,shape = learner), size = 0.8, alpha = 0.1)+
+  #facet_grid(learner ~ task)+
+  coord_fixed(ratio = 1, xlim = NULL, ylim = NULL, expand = TRUE, clip = "on")+
+  ggtitle("Correlation of truth-response for TUG-Regression")+
+  ylim(0,30)+
+  xlim(0,30)+
+  theme_bw()+
+theme(legend.position = "bottom", 
+      axis.text = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 7), 
+        axis.title = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10),
+        panel.grid.minor = element_line(),
+      panel.background = element_blank(),
+        #axis.text.x=element_text(margin = margin(t = 10)),
+      axis.line = element_blank(),
+      axis.ticks = element_line(size = 0.3),
+         panel.border = element_rect(colour = "black", fill=NA, size=.5),
+        #axis.text.x=element_text(margin = margin(t = 20)),
+          plot.title = element_text(size = 11, face = "bold", color = "black", hjust = 0),
+        axis.text.x = element_text(angle = 0, vjust = 0, hjust=0.5),
+        strip.background = element_blank(),
+  strip.text.x = element_text(size = 7, face = "bold", color = "black", hjust = 0.5))
+  
+
+bp
+
+ggsave("Overview_regressioncorrelations.pdf", width = 5, height = 5)
+
+```
+
+
+
+
+```{r}
+learner = lrn("regr.rpart")
+
+autoplot(bmr, type = "residual")
+
+tasks$id
+
+outPlots
+
+
+autoplot(object, type = "residual")
+```
+#2ndloop
+```{r}
+for (i in tasks) {
+  for (l in learners) {
+  task = i
+  learner = l
+  object = learner$train(task)$predict(task)
+  my.plot<- autoplot(object, type = "residual", title = i$id) %>% print()
+  # print(plot)
+  outPlots <- append(outPlots, my.plot)
+  }
+}
+```
+
+
+
+```{r}
+summary(pairwise.t.test(as.vector(bmr.score.only$task_id), as.numeric(bmr.score.only$regr.mse),
+                p.adjust.method = "BH"))
+```
+##Plot Ulla
+```{r}
+library("mlr3verse")
+library("data.table")
+```
+
+
+```{r}
+design = benchmark_grid(
+  tasks = c(task_full, task_sarcf, task_eq5, task_labs_c, task_exp, task_demo),
+  learners = lrns(c("classif.rpart", "classif.ranger", "classif.kknn"),
+    predict_type = "prob", predict_sets = c("train", "test")),
+  resamplings = rsmps("cv", folds = 3)
+)
+print(design)
+bmr = benchmark(design)
+measures = list(
+  msr("classif.auc", predict_sets = "train", id = "auc_train"),
+  msr("classif.auc", id = "auc_test")
+)
+
+tab = bmr$aggregate(measures)
+print(tab%>% arrange("auc_test"))
+arrange(tab,auc_test)
+
+
+# group by levels of task_id, return columns:
+# - learner_id
+# - rank of col '-auc_train' (per level of learner_id)
+# - rank of col '-auc_test' (per level of learner_id)
+ranks = tab[, .(learner_id, rank_train = rank(-auc_train), rank_test = rank(-auc_test)), by = task_id]
+print(ranks) 
+
+# group by levels of learner_id, return columns:
+# - mean rank of col 'rank_train' (per level of learner_id)
+# - mean rank of col 'rank_test' (per level of learner_id)
+ranks = ranks[, .(mrank_train = mean(rank_train), mrank_test = mean(rank_test)), by = learner_id]
+
+# print the final table, ordered by mean rank of AUC test
+ranks[order(mrank_test)]
+
+autoplot(bmr, color = ) + ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1))
+ggsave("boxplot_classif.pdf", width = 12, height = 7)
+```
+
+```{r}
+bmr = benchmark(design)
+bmr_sarc = bmr$clone()$filter(task_id = "Predict.Patients.at.Fall.sarcf")
+cplot_sarc<- autoplot(bmr_sarc, type = "roc")+
+   ggtitle("ROC of SARC-F")+
+  #scale_y_continuous(expand = c(0, 0)) + 
+  theme_bw()
+bmr = benchmark(design)
+bmr_eq5 = bmr$clone()$filter(task_id = "Predict.Patients.at.Fall.eq5")
+
+cplot_eq5 <- autoplot(bmr_eq5, type = "roc")+
+   ggtitle("ROC of EQ-5D-Data")+
+  #scale_y_continuous(expand = c(0, 0)) + 
+  theme_bw()
+bmr = benchmark(design)
+bmr_labs = bmr$clone()$filter(task_id = "Predict.Patients.at.Fall.labs")
+cplot_labs <- autoplot(bmr_labs, type = "roc")+
+   ggtitle("ROC of Lab values")+
+  #scale_y_continuous(expand = c(0, 0)) + 
+  theme_bw()
+#demographics
+bmr = benchmark(design)
+bmr_demo= bmr$clone()$filter(task_id = "Predict.Patients.at.Fall.demo")
+cplot_demogr <- autoplot(bmr_demo, type = "roc")+
+   ggtitle("ROC of demographics")+
+  #scale_y_continuous(expand = c(0, 0)) + 
+  theme_bw()
+bmr = benchmark(design)
+bmr_exp = bmr$clone()$filter(task_id = "Predict.Patients.at.Fall.exp")
+cplot_exp<- autoplot(bmr_exp, type = "roc")+
+   ggtitle("ROC of feature select")+
+  #scale_y_continuous(expand = c(0, 0)) + 
+  theme_bw()
+bmr = benchmark(design)
+bmr_full = bmr$clone()$filter(task_id = "Predict.Patients.at.Fall.full")
+cplot_full<- autoplot(bmr_full, type = "roc")+
+   ggtitle("ROC of complete data")+
+  #scale_y_continuous(expand = c(0, 0)) + 
+  theme_bw()
+
+```
+```{r}
+library(patchwork)
+cplot_sarc+ 
+cplot_eq5+
+  cplot_labs+#
+  cplot_demogr+
+  cplot_exp+
+  cplot_full+plot_layout(ncol = 3, guides = "collect")
+
+ggsave("Comparison_Classification_Learner.pdf", width = 12, height = 7)
+```
+
+
+```{r}
+learners_u = list(
+  lrn("classif.ranger", id = "rf"),
+  #lrn("classif.log_reg", id = "lr"),
+  lrn("classif.svm", id = "svm"),predict_type = "prob"
+)
+#
+learners_ids = sapply(learners, function(x) x$id)
+learners_ids = sapply(learners_u, function(x) x$id)
+#set-tasks  data.mlr.reduced
+task_u
+
+data.mlr_sarc <- data.mlr.rem %>% select(c(PreFrailty, SARC_F.Score))  
+task_sarcf<- TaskClassif$new(id="Predict.Patients.at.Fall.sarcf", as_data_backend(data.mlr.rem %>% select(PreFrailty, SARC_F.Score)), "PreFrailty", positive = "1", extra_args = list())
+task_eq5
+task_full <- TaskClassif$new(id="Predict.Patients.at.Fall.full", as_data_backend(data.mlr.reduced.u), "PreFrailty", positive = "1", extra_args = list())
+data.mlr_eq5 <- data.mlr.reduced.u  %>% select(PreFrailty, EQ5_Index)
+task_eq5 <- TaskClassif$new(id="Predict.Patients.at.Fall.eq5", as_data_backend(data.mlr.rem %>% select(PreFrailty, EQ5_Index)), "PreFrailty", positive = "1", extra_args = list())
+
+task_labs_c <- TaskClassif$new(id="Predict.Patients.at.Fall.labs", as_data_backend(data.mlr.rem %>% select(c(Sodium,Potassium,Glucose,GFR,Calcium, Calcium.corr.,Phosphate, C.reactive.protein,Total.protein,Gamma.gluteryl.transferase,alkaline.phosphate,Leukocytes,Erythrozytes,Haemoglobin,Haematokrite,MCV,MCH,MCH,Thrombozytes,TSH, Parathormon, Vitamin.D3, LDH, Creatine.Kinase, Creatinine,Myoglobin,Bone.mineral.density.femoral.neck,Bone.mineral.density.L1, PreFrailty))), "PreFrailty", positive = "1", extra_args = list())
+
+#Demographics
+task_demo <-TaskClassif$new(id="Predict.Patients.at.Fall.demo", as_data_backend(data.mlr.rem %>% select(PreFrailty, Age, Weight, Height, BMI, smoking,Body.fat.percentage, visceral.fat.percentage, Muscle.percentage,)), "PreFrailty", extra_args = list())
+
+
+task_exp <-TaskClassif$new(id="Predict.Patients.at.Fall.exp", as_data_backend(data.exp.2 ), "PreFrailty", extra_args = list())
+#Task List
+tasks_u = list(task_full,
+             task_eq5,
+             task_sarcf
+             #task_lab_values,
+             #task_demographic, 
+             #task_assessment,
+             #task_expert_choose,
+             #task_demo_lab
+             )
+
+grid = benchmark_grid(tasks_u, lrn("classif.ranger", id = "rf"), predict_type = "prob", outer_cv10)
+bmr = benchmark(grid)
+bmr$aggregate(measures = msr("classif.ce"))
+
+bmr$aggregate()[, list(nr, resample_result, task_id, learner_id, classif.ce)] 
+mlr3viz::autoplot(bmr, type = "roc")
+
+```
+#Plot Roc Curves for 4 Tasks
+```{r}
+task_u <- TaskClassif$new(id="Predict.Patients.at.Fall.full", as_data_backend(data.imputed), "PreFrailty", positive = "1", extra_args = list())
+data.mlr_eq5 <- data.imputed %>% select(c(PreFrailty, EQ5_Index))
+
+
+
+
+
+my.roc <- mlr3viz::autoplot(bmr, type = "roc")
+
+
+,colour = c("#1B9E77", "#D95F02", "#7570B3", "#E7298A", "#66A61E", "#E6AB02", "#A6761D"), size = 4)
+my.roc+
+  ggtitle("ROC of Learners")+
+  scale_y_continuous(expand = c(0, 0)) + 
+  theme_bw()+
+  theme(
+        legend.text = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10), 
+        legend.title = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10), 
+        axis.text = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10), 
+        axis.title = element_text(face = "bold", 
+                                 color = "black", 
+                                 size = 10),
+        panel.grid.minor = element_line(),
+      panel.background = element_blank(),
+        #axis.text.x=element_text(margin = margin(t = 10)),
+      axis.line = element_blank(),
+      axis.ticks = element_line(size = 0.3),
+         panel.border = element_rect(colour = "black", fill=NA, size=.5),
+        #axis.text.x=element_text(margin = margin(t = 20)),
+          plot.title = element_text(size = 14, face = "bold", color = "black", hjust = 0),
+        axis.text.x = element_text(angle = 0, vjust = 0, hjust=0.5),
+        strip.background = element_blank(),
+  strip.text.x = element_blank()
+      )
+
+
+```
+
+#outlier removal
+```{r}
+library("isotree")
+
+OutlierRem <- isolation.forest(
+      task.data,
+      sample_size = min(nrow(task.data), 10000L),
+      ntrees = 500,
+      ndim = min(3, ncol(task.data)),
+      ntry = 1,
+      categ_cols = NULL,
+      max_depth = ceiling(log2(nrow(task.data))),
+      ncols_per_tree = ncol(task.data),
+      prob_pick_pooled_gain = 0,prob_pick_avg_gain = 0,
+  prob_pick_full_gain = 0,
+  prob_pick_dens = 0,
+  prob_pick_col_by_range = 0,
+  prob_pick_col_by_var = 0,
+  prob_pick_col_by_kurt = 0,
+  min_gain = 0,
+  # missing_action = ifelse(ndim > 1, "impute", "divide"),
+  # new_categ_action = ifelse(ndim > 1, "impute", "weighted"),
+  # categ_split_type = ifelse(ndim > 1, "subset", "single_categ"),
+  # all_perm = FALSE,
+  coef_by_prop = FALSE,
+  recode_categ = FALSE,
+  weights_as_sample_prob = TRUE,
+  sample_with_replacement = FALSE,
+  penalize_range = FALSE,
+  standardize_data = TRUE,
+  scoring_metric = "depth",
+  fast_bratio = TRUE,
+  weigh_by_kurtosis = FALSE,
+  coefs = "uniform",
+  assume_full_distr = TRUE,
+  build_imputer = FALSE,
+  output_imputations = FALSE,
+  min_imp_obs = 3,
+  depth_imp = "higher",
+  weigh_imp_rows = "inverse",
+  output_score = TRUE,
+  output_dist = TRUE,
+  square_dist = TRUE,
+  sample_weights = NULL,
+  column_weights = NULL,
+  seed = 1,
+  use_long_double = FALSE,
+  nthreads = parallel::detectCores()
+)
+
+OutlierRem$scores
+```
+```{r}
+ iso <- isolation.forest(task.data, nthreads=1)
+    pred_iso <- predict(iso, task.data)
+    otree <- outliertree::outlier.tree(
+        task.data,
+        z_outlier = 6,
+        pct_outliers = 0.02,
+        outliers_print = 20,
+        nthreads = 1)
+    ### Now compare against the top
+    ### outliers from isolation forest
+    head(task.data[order(-pred_iso), ], 10)
+```
+#outlier solitude
+```{r}
+library(solitude)
+iso = isolationForest$new(sample_size = 103, num_trees = 1000)
+iso$fit(task.data)
+
+scores_train = task.data %>%
+      iso$predict() %>%
+      arrange(desc(anomaly_score))
+
+remove_vector <- scores_train %>% filter(anomaly_score>=0.61)
+
+remove_vector$id
+
+removed.data <- task.data[-remove_vector$id,]
+```
+#standard regression analyis
+```{r}
+as.vector(result_df$Impurity)
+task.data %>% select(as.vector(result_df$Impurity))
+model <- lm(TUG_Test.Time ~ Handgripstrength.dominant.hand+Myoglobin+Handgripstrength.non.dominant.hand+C.reactive.protein+Age+Vitamin.D3+SARC_F.Score+Leukocytes+daily_leaving_appartment+BMI+estimated_gz, task.data)
+summary(model)
+
+model <- lm(TUG_Test.Time ~ Handgripstrength.dominant.hand*Myoglobin*Handgripstrength.non.dominant.hand*C.reactive.protein*Age*Vitamin.D3*SARC_F.Score*Leukocytes*daily_leaving_appartment*BMI*estimated_gz, task.data)
+
+
+
+model <- lm(TUG_Test.Time ~ Handgripstrength.dominant.hand+Myoglobin+C.reactive.protein+Age*Vitamin.D3+SARC_F.Score, task.data)
+summary(model)
+```
+#plot multiple lin. regression
+```{r}
+library(car)
+avPlots(model)
+```
+
+#demographics table
+```{r, message = FALSE}
+table1 <-
+  task.data[,c(2:45, 51:56,64:67)] %>% 
+  tbl_summary() %>%
+  add_n() %>% # add column with total number of non-missing observations 
+  #add_overall() %>%
+  bold_labels() 
+
+table1
+```
+```
+
+
+
+
+
+
+
+
+
+
