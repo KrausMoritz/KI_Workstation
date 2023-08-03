@@ -503,7 +503,6 @@ data <- my.stat.data
 #Transform Data
 data <- mutate_all(data, 
                         function(x) as.numeric(as.character(x)))
-data<- rfImpute(Age ~ ., data = data, iter=5, ntree=100)
 #data <- replace_na(data,as.list(colMeans(data,na.rm=T)))
 #neural.data <- data
 #Transform Data
@@ -600,10 +599,7 @@ library(purrr)
 data <- my.stat.data
 #Transform Data
 data <- mutate_all(data, 
-                        function(x) as.numeric(as.character(x)))
-#data<- rfImpute(Age ~ ., data = data, iter=5, ntree=100)
-#data <- replace_na(data,as.list(colMeans(data,na.rm=T)))
-neural.data <- data
+                        function(x) as.numeric(as.character(x))
 #Transform Data
 data <- mutate(data, fall_risk = ifelse(SPPB.Score < 10,1,0))
 data <- mutate(data, PreFrailty = ifelse(SPPB.Score < 9,1,0))
@@ -623,14 +619,6 @@ data_with_factors <- data %>%
                        "PreFrailty"), factor)
 
 
-#Impute missing data
-#data.imputed <- replace_na(data,as.list(colMeans(corr.data,na.rm=T)))
-#data.imputed <- as.data.frame(data.imputed)
-library(randomForest)
-data.imputed <- rfImpute(SPPB.Score~., data = data_with_factors, iter=5, ntree=100)
-write.csv(data.imputed, "lab.data.imputed.csv")
-data.imputed_select =data.imputed %>%  select(PreFrailty,Age, Bone.mineral.density.femoral.neck, C.reactive.protein, Calcium.corr., Calf.circumference, Handgripstrength.dominant.hand, Myoglobin, Vitamin.D3)
-head(data.imputed_select)
 
 ```
 ```{r}
@@ -648,8 +636,8 @@ library(mlr3pipelines)
 ```
 ##Tasks
 ```{r}
-data.mlr <- data.imputed
-data.mlr.reduced <- data.imputed %>% select(-c(SPPB.Score, TUG_Test.Time,Time.for.4m,Time.for.5x.sit.to.stand, fall_risk))
+data.mlr <- data_with_factors 
+data.mlr.reduced <- data_with_factors  %>% select(-c(SPPB.Score, TUG_Test.Time,Time.for.4m,Time.for.5x.sit.to.stand, fall_risk))
 normalize <- function(x) {
   return ((x - min(x)) / (max(x) - min(x)))
 }
@@ -768,22 +756,6 @@ z <- scores.ordered$id[1:5]
 data.mlr.rem <- data.mlr %>% filter(-c(unlist(z)))
 data.mlr$SPPB.Score <- as.numeric(data.mlr$SPPB.Score)
 data.mlr3 <- data.mlr %>% filter(SPPB.Score > 0)
-```
-##Isolation Forest
-```{r}
-iso.two <- isolation.forest(data.mlr.reduced,sample_size = nrow(data.mlr), output_imputations= TRUE)
-#predict.isolation_forest(newdata= data.mlr, iso.two)
-# initiate an isolation forest
-iso = isolationForest$new(sample_size = length(index))
-iso$num_trees = 1000
-iso$fit(dataset = data.mlr.reduced)#[index, ])
-prd.data <- iso$predict(data.mlr.reduced)#[index, ]) # s
-iso$predict(data.mlr.reduced)#[-index, ])
-prd.data <- iso$predict(data.mlr.reduced)
-prd.data2 <- prd.data %>% filter(anomaly_score<0.60)
-ml.data <- data.mlr.reduced %>% filter(rownames(data.mlr.reduced) %in% prd.data2$id)
-#rownames(data.mlr)
-
 ```
 
 ###Sequential Forward Feature Selection
